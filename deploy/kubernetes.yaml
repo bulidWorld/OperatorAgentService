@@ -20,7 +20,7 @@ spec:
         - name: web
           image: your-registry/operator-agent-service:1.0.0
           ports:
-            - containerPort: 3000
+            - containerPort: 9090
           env:
             - name: PROMETHEUS_URL
               value: http://prometheus.monitoring.svc.cluster.local:9090
@@ -69,12 +69,12 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 9090
             initialDelaySeconds: 5
           livenessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 9090
             initialDelaySeconds: 20
       volumes:
         - name: logs
@@ -90,5 +90,5 @@ spec:
     app: operator-agent-service
   ports:
     - port: 80
-      targetPort: 3000
+      targetPort: 9090
   type: ClusterIP

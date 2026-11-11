@@ -22,6 +22,12 @@ export const POD_GROUPS = {
   ],
 } as const;
 export type PodGroup = keyof typeof POD_GROUPS;
+/** 为指定 namespace 和 Pod 构造详情页使用的 PromQL 表达式。
+ * @param namespace Kubernetes namespace 名称。
+ * @param pod Pod 名称。
+ * @param windowSeconds rate 函数计算窗口，单位为秒，默认 300 秒。
+ * @returns Pod 各项性能指标的 PromQL 表达式映射。
+ */
 export function podDetailQueries(
   namespace: string,
   pod: string,
@@ -61,8 +67,41 @@ export type PodDetail = {
   groups: Record<PodGroup, NodeGroupDetail>;
   metrics: Record<PodMetric, Sample[]>;
   warnings: PodMetric[];
+  restartEvents: PodRestartEvent[];
+  restartWindowStart: number;
+  restartWindowEnd: number;
+  restartWarning: boolean;
   updatedAt: string;
 };
+export type PodRestartEvent = { time: number; container: string };
+
+/** 从最后终止时间指标的历史采样中提取过去 24 小时的容器重启事件。
+ * @param samples Pod 容器最后终止时间的 Prometheus range 样本。
+ * @param start 查询窗口起点，Unix 秒。
+ * @param end 查询窗口终点，Unix 秒。
+ * @returns 按时间升序、按容器和时间去重后的重启事件。
+ */
+function extractRestartEvents(samples: Sample[], start: number, end: number): PodRestartEvent[] {
+  const events = new Map<string, PodRestartEvent>();
+  for (const sample of samples) {
+    for (const [, rawTimestamp] of sample.values || []) {
+      const time = Math.round(Number(rawTimestamp));
+      if (!Number.isFinite(time) || time < start || time > end) continue;
+      const container = sample.metric.container || "未知容器";
+      events.set(`${container}:${time}`, { time, container });
+    }
+  }
+  return [...events.values()].sort((left, right) => left.time - right.time);
+}
+/** 查询单个 Pod 在选定分组时间范围内的性能指标。
+ * @param namespace Kubernetes namespace 名称。
+ * @param pod Pod 名称。
+ * @param minutes 全局时间范围，单位为分钟，默认 60。
+ * @param stepSelection 全局采样间隔选择，默认自动计算。
+ * @param selections 各指标分组的时间范围、间隔或自定义起止时间。
+ * @returns Pod 指标、分组范围、更新时间和失败指标列表。
+ * @throws Pod 名称或时间范围无效，或全部指标查询失败时抛出错误。
+ */
 export async function getPodDetail(
   namespace: string,
   pod: string,
@@ -114,17 +153,25 @@ export async function getPodDetail(
         ),
       ) as Record<PodMetric, PodGroup>;
       const keys = Object.keys(podDetailQueries(namespace, pod)) as PodMetric[];
-      const results = await Promise.allSettled(
-        keys.map((key) => {
-          const range = groups[metricGroups[key]];
-          return queryRange(
-            podDetailQueries(namespace, pod, range.windowSeconds)[key],
-            range.start,
-            range.end,
-            range.stepSeconds,
-          );
-        }),
-      );
+      const restartWindowEnd = Math.floor(Date.now() / 30) * 30;
+      const restartWindowStart = restartWindowEnd - 24 * 60 * 60;
+      const restartQuery = `kube_pod_container_status_last_terminated_timestamp{namespace=${JSON.stringify(namespace)},pod=${JSON.stringify(pod)}}`;
+      const [results, restartSamples] = await Promise.all([
+        Promise.allSettled(
+          keys.map((key) => {
+            const range = groups[metricGroups[key]];
+            return queryRange(
+              podDetailQueries(namespace, pod, range.windowSeconds)[key],
+              range.start,
+              range.end,
+              range.stepSeconds,
+            );
+          }),
+        ),
+        queryRange(restartQuery, restartWindowStart, restartWindowEnd, 30)
+          .then((result) => result.result)
+          .catch(() => null),
+      ]);
       const metrics = {} as PodDetail["metrics"];
       const warnings: PodMetric[] = [];
       results.forEach((result, index) => {
@@ -134,7 +181,12 @@ export async function getPodDetail(
       });
       if (warnings.length === keys.length)
         throw new Error("Pod 性能指标查询失败，请检查 Prometheus 连接。");
-      return { groups, metrics, warnings, updatedAt: new Date().toISOString() };
+      return {
+        groups, metrics, warnings,
+        restartEvents: restartSamples ? extractRestartEvents(restartSamples, restartWindowStart, restartWindowEnd) : [],
+        restartWindowStart, restartWindowEnd, restartWarning: restartSamples === null,
+        updatedAt: new Date().toISOString(),
+      };
     },
   );
 }

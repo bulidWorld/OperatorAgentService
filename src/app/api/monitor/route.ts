@@ -8,9 +8,17 @@ type MonitorResponse = operations["getMonitor"]["responses"][200]["content"]["ap
 type ErrorResponse = operations["getMonitor"]["responses"][400]["content"]["application/json"];
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+/** 处理监控面板 GET 请求，并为请求链建立日志上下文。
+ * @param request Next.js 请求，查询参数可包含 scope、minutes 和 step。
+ * @returns Dashboard JSON；参数错误返回 400，监控查询失败返回 502。
+ */
 export async function GET(request: NextRequest) {
   return withLogContext({ traceId: randomUUID(), feature: "监控数据API" }, () => handleGet(request));
 }
+/** 校验监控查询参数、调用业务聚合层并记录入站请求结果。
+ * @param request 当前 Next.js GET 请求。
+ * @returns 符合 OpenAPI Dashboard 契约的 JSON 响应。
+ */
 async function handleGet(request: NextRequest) {
   const requestId = randomUUID();
   const started = performance.now();

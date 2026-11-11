@@ -16,12 +16,31 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { Dashboard as Data, Scope } from "@/lib/prometheus/business";
+import { getMonitor, getNodeStatus } from "@/generated/api";
+import type { operations } from "@/generated/api.types";
+type MonitorQuery = NonNullable<operations["getMonitor"]["parameters"]["query"]>;
+/** 将字节数格式化为适合监控表格显示的 KiB、MiB 或 GiB。
+ * @param n 输入字节数。
+ * @returns 保留一位小数并附带单位的字符串。
+ */
+/** 将字节数格式化为适合监控表格显示的 KiB、MiB 或 GiB。
+ * @param n 输入字节数。
+ * @returns 保留一位小数并附带单位的字符串。
+ */
 const bytes = (n: number) =>
   n >= 1024 ** 3
     ? `${(n / 1024 ** 3).toFixed(1)} GiB`
     : n >= 1024 ** 2
       ? `${(n / 1024 ** 2).toFixed(1)} MiB`
       : `${(n / 1024).toFixed(1)} KiB`;
+/** 渲染 Node/Pod 监控总览，并管理搜索、筛选、刷新和节点状态轮询。
+ * @param initialData 服务端预加载的面板数据；未提供时由浏览器请求加载。
+ * @param initialScope 当前资源类型，默认为 nodes。
+ * @param initialMinutes 初始图表时间范围，单位为分钟，默认 60。
+ * @param initialStep 初始采样间隔选择，默认自动计算。
+ * @param initialError 服务端初次加载失败时显示的错误文本。
+ * @returns 监控总览的 React 页面内容。
+ */
 export default function Dashboard({
   initialData = null,
   initialScope = "nodes",
@@ -55,17 +74,8 @@ export default function Dashboard({
       timedOut = true;
       controller.abort();
     }, 20000);
-    fetch(`/api/monitor?scope=${scope}&minutes=${minutes}&step=${step}`, {
-      signal: controller.signal,
-    })
-      .then(async (r) => {
-        const body = await r.json().catch(() => {
-          throw new Error(`监控接口返回非 JSON 响应（HTTP ${r.status}），请检查服务或代理配置。`);
-        });
-        if (!r.ok) throw new Error(body.error || `监控请求失败（HTTP ${r.status}）`);
-        return body;
-      })
-      .then((body: Data) => {
+    getMonitor({ scope, minutes: minutes as MonitorQuery["minutes"], step: String(step) as MonitorQuery["step"] }, controller.signal)
+      .then((body) => {
         if (!controller.signal.aborted) setData(body);
       })
       .catch((e: unknown) => {
@@ -92,14 +102,15 @@ export default function Dashboard({
     let stopped = false;
     let pending = false;
     let controller: AbortController | null = null;
+    /** 拉取一次节点状态；已有请求未结束时跳过本次轮询。
+     * @returns 请求成功后更新节点状态，失败时保留最近一次结果。
+     */
     const poll = async () => {
       if (pending) return;
       pending = true;
       controller = new AbortController();
       try {
-        const response = await fetch("/api/node-status", { cache: "no-store", signal: controller.signal });
-        if (!response.ok) return;
-        const body: { statuses: Record<string, boolean> | null } = await response.json();
+        const body = await getNodeStatus(controller.signal);
         if (!stopped && body.statuses) setNodeStatuses(body.statuses);
       } catch {
         // Keep the last known status until the next successful poll.
@@ -489,6 +500,15 @@ export default function Dashboard({
     </div>
   );
 }
+/** 渲染一个监控统计卡片。
+ * @param title 卡片标题。
+ * @param value 主数值文本。
+ * @param unit 数值单位文本。
+ * @param icon 标题旁显示的图标节点。
+ * @param footer 卡片底部说明。
+ * @param warning 是否使用告警样式和图标，默认 false。
+ * @returns 统计卡片的 React 元素。
+ */
 function Stat({
   title,
   value,
@@ -521,6 +541,12 @@ function Stat({
     </section>
   );
 }
+/** 渲染指标单元格，并按需显示百分比进度条。
+ * @param value 数值；null 表示没有采集值。
+ * @param percent 是否显示百分比进度条。
+ * @param format 将数值转换为显示文本的函数。
+ * @returns 指标单元格的 React 元素。
+ */
 function Meter({
   value,
   percent,

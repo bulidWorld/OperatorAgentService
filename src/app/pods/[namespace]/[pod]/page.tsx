@@ -30,6 +30,11 @@ const layout: { key: PodGroup; title: string; charts: PodMetric[][] }[] = [
   { key: "disk", title: "磁盘 I/O", charts: [["diskRead", "diskWrite"], ["diskLatency", "diskWait"], ["diskUtilization"]] },
   { key: "network", title: "网络", charts: [["receive", "transmit"], ["receiveDrops", "transmitDrops"], ["receiveErrors", "transmitErrors"]] },
 ];
+/** 服务端渲染指定 namespace/Pod 的性能详情页。
+ * @param params 动态路由参数，包含 namespace 和 Pod 名称。
+ * @param searchParams 全局和分组时间范围、step 以及自定义起止时间。
+ * @returns Pod 详情图表页面；查询失败时返回带错误提示的页面内容。
+ */
 export default async function PodDetailPage({ params, searchParams }: {
   params: Promise<{ namespace: string; pod: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -38,8 +43,16 @@ export default async function PodDetailPage({ params, searchParams }: {
   const search = await searchParams;
   const selected = Number(search.minutes || 60);
   const minutes = (TIME_RANGES as readonly number[]).includes(selected) ? selected : 60;
+  /** 将 URL 中的 step 参数解析为支持的采样间隔。
+   * @param value URL 参数值，可能是字符串、数组、数字或未设置。
+   * @returns 支持的 step；auto、缺失或无效输入返回 auto。
+   */
   const parseStep = (value: string | string[] | number | undefined): StepSelection => value === "auto" || value === undefined ? "auto" : isStepSelection(Number(value)) ? Number(value) as StepSelection : "auto";
   const stepSelection = parseStep(search.step);
+  /** 将 URL 查询参数转换为 Unix 秒时间戳。
+   * @param value 单个字符串、重复参数数组或未提供的值。
+   * @returns 安全整数时间戳；非单值或无效值返回 undefined。
+   */
   const timestamp = (value: string | string[] | undefined) => typeof value === "string" && value !== "" && Number.isSafeInteger(Number(value)) ? Number(value) : undefined;
   const globalFrom = timestamp(search.From), globalTo = timestamp(search.To);
   const selections = {} as Record<PodGroup, NodeGroupSelection>;

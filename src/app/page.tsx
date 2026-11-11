@@ -6,6 +6,10 @@ import { errorLog } from "@/lib/logger";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/** 服务端渲染监控首页，并按 URL 查询参数加载初始面板数据。
+ * @param searchParams Next.js 提供的 scope、minutes、step 查询参数。
+ * @returns 带初始数据的 Dashboard 客户端组件；加载失败时向组件传递错误。
+ */
 export default async function Page({
   searchParams,
 }: {

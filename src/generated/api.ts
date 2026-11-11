@@ -1,3 +1,4 @@
+/** Handwritten browser client. Regenerate api.types.ts from OpenAPI; keep this file as the runtime call layer. */
 import type { operations } from "./api.types";
 
 type MonitorQuery = NonNullable<operations["getMonitor"]["parameters"]["query"]>;
@@ -6,13 +7,11 @@ type NodeStatusResponse = operations["getNodeStatus"]["responses"][200]["content
 type AlertsResponse = operations["getAlerts"]["responses"][200]["content"]["application/json"];
 type ApiError = operations["getMonitor"]["responses"][400]["content"]["application/json"];
 
-/**
- * Browser request path:
- * component -> getMonitor/getNodeStatus/getAlerts -> getJson -> fetch
- * -> Next.js route -> business service -> Prometheus or PostgreSQL
- * -> NextResponse.json -> getJson -> component state.
- *
- * The Alertmanager webhook is called by Alertmanager, not by this browser client.
+/** 发送 GET 请求、解析 JSON 并将服务端错误转换成 Error。
+ * @param path 本服务 API 的相对路径，可包含查询参数。
+ * @param signal 可选的 AbortSignal，用于取消浏览器请求。
+ * @returns 解析后的响应对象；类型由调用方依据 OpenAPI 契约指定。
+ * @throws 响应非 JSON 或 HTTP 状态码非 2xx 时抛出错误。
  */
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { cache: "no-store", signal });
@@ -34,6 +33,14 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return body as T;
 }
 
+/** 请求 Node/Pod 监控聚合数据。
+ * @param query 面板资源类型、时间范围和采样间隔。
+ * @param signal 可选的 AbortSignal，用于组件卸载或请求超时时取消请求。
+ * @returns Dashboard 契约响应。
+ * @throws 请求失败或服务端返回错误时抛出错误。
+ * @remarks 调用链：Dashboard.useEffect → getMonitor → getJson → fetch →
+ * `/api/monitor` GET → getDashboard → Prometheus HTTP API → 页面状态更新。
+ */
 export function getMonitor(query: MonitorQuery, signal?: AbortSignal): Promise<MonitorResponse> {
   const params = new URLSearchParams();
   if (query.scope) params.set("scope", query.scope);
@@ -42,10 +49,24 @@ export function getMonitor(query: MonitorQuery, signal?: AbortSignal): Promise<M
   return getJson<MonitorResponse>(`/api/monitor?${params}`, signal);
 }
 
+/** 请求节点可用状态映射。
+ * @param signal 可选的 AbortSignal，用于停止轮询中的请求。
+ * @returns 节点状态映射；演示模式下 statuses 为 null。
+ * @throws 请求失败或服务端返回错误时抛出错误。
+ * @remarks 调用链：Dashboard 节点轮询 → getNodeStatus → getJson → fetch →
+ * `/api/node-status` GET → 可用性与节点清单查询 → 页面 nodeStatuses 状态。
+ */
 export function getNodeStatus(signal?: AbortSignal): Promise<NodeStatusResponse> {
   return getJson<NodeStatusResponse>("/api/node-status", signal);
 }
 
+/** 请求当前资源告警列表。
+ * @param signal 可选的 AbortSignal，用于取消当前请求。
+ * @returns 告警列表和数据来源。
+ * @throws 请求失败或服务端返回错误时抛出错误。
+ * @remarks 调用链：AlertsPage.load → getAlerts → getJson → fetch →
+ * `/api/alerts` GET → PostgreSQL 活动告警或 Prometheus → 页面 alerts 状态。
+ */
 export function getAlerts(signal?: AbortSignal): Promise<AlertsResponse> {
   return getJson<AlertsResponse>("/api/alerts", signal);
 }

@@ -9,6 +9,11 @@ type ErrorResponse = operations["receiveAlertmanagerWebhook"]["responses"][400][
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** 使用恒定时间比较校验 Bearer token。
+ * @param header HTTP Authorization 请求头。
+ * @param token 服务端配置的预期 token。
+ * @returns 请求头中的 token 与预期 token 相同时返回 true。
+ */
 function authorized(header: string | null, token: string) {
   if (!header?.startsWith("Bearer ")) return false;
   const received = createHash("sha256").update(header.slice(7)).digest();
@@ -16,6 +21,11 @@ function authorized(header: string | null, token: string) {
   return timingSafeEqual(received, expected);
 }
 
+/** 读取并限制 Alertmanager webhook 请求体大小。
+ * @param request 当前 Next.js webhook 请求。
+ * @returns 请求体 UTF-8 字符串。
+ * @throws 请求体为空或超过 1 MiB 时抛出错误。
+ */
 async function readBody(request: NextRequest): Promise<string> {
   const reader = request.body?.getReader();
   if (!reader) throw new Error("请求体不能为空");
@@ -35,6 +45,10 @@ async function readBody(request: NextRequest): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** 接收、校验并持久化 Alertmanager v4 webhook 告警。
+ * @param request Alertmanager 发来的 POST 请求，需包含 Bearer token 和 JSON 请求体。
+ * @returns 接收数量与活动告警总数；按校验或存储结果返回对应 HTTP 状态。
+ */
 export async function POST(request: NextRequest) {
   const calledAt = new Date().toISOString();
   const started = performance.now();

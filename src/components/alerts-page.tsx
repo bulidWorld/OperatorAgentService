@@ -2,20 +2,26 @@
 
 import { Bell, Boxes, ChevronDown, Layers3, Radio, RefreshCw, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { getAlerts } from "@/generated/api";
+import type { components } from "@/generated/api.types";
 
-type AlertRow = { name: string; severity: string; resource: string; description: string; activeAt: string | null };
+type AlertRow = components["schemas"]["AlertRow"];
 
+/** 渲染资源告警页面，并每 30 秒从服务端接口刷新告警列表。
+ * @returns 告警列表、数据源状态及错误提示组成的 React 页面。
+ */
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [source, setSource] = useState("Prometheus");
+  /** 请求最新告警并更新页面的加载、数据源和错误状态。
+   * @returns 请求完成后结束加载状态；接口错误会保存到 error 状态。
+   */
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/alerts", { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "告警查询失败");
+      const body = await getAlerts();
       setAlerts(body.alerts);
       setSource(body.source === "alertmanager" ? "Alertmanager" : "Prometheus");
       setError("");

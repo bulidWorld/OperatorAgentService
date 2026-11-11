@@ -7,6 +7,9 @@ type ErrorResponse = operations["getNodeStatus"]["responses"][502]["content"]["a
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/** 返回节点名称到可用状态的映射。
+ * @returns DEMO_MODE 下返回 null；实时模式并发查询状态与节点清单，失败返回 502。
+ */
 export async function GET() {
   try {
     if (process.env.DEMO_MODE === "true") return NextResponse.json({ statuses: null } satisfies NodeStatusResponse);

@@ -2,7 +2,18 @@
 import { useState } from "react";
 import { TIME_RANGES } from "@/lib/chart";
 
+/** 渲染最近时段选择器或自定义起止时间输入控件。
+ * @param prefix URL 查询参数前缀；全局控件传空字符串。
+ * @param from 已选起始时间，Unix 秒，可选。
+ * @param to 已选结束时间，Unix 秒，可选。
+ * @param minutes 当前相对时间范围，单位为分钟。
+ * @returns 时间范围选择和自定义时间输入的 React 元素。
+ */
 export default function NodeCustomRange({ prefix, from, to, minutes }: { prefix: string; from?: number; to?: number; minutes: number }) {
+  /** 将 Unix 秒时间戳转换为上海时区的 datetime-local 输入值。
+   * @param seconds Unix 秒时间戳，可选。
+   * @returns 本地日期时间字符串；未提供时返回空字符串。
+   */
   const localValue = (seconds?: number) => seconds === undefined ? "" : new Date((seconds + 8 * 3600) * 1000).toISOString().slice(0, 16);
   const [mode, setMode] = useState<"range" | "custom">(from !== undefined && to !== undefined ? "custom" : "range");
   const [start, setStart] = useState(localValue(from));

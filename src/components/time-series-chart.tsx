@@ -2,6 +2,18 @@
 import { useState } from "react";
 import { duration, formatMetric, nearestPoint, type ChartSeries, type ChartUnit } from "@/lib/chart";
 const COLORS = ["#0eae9a", "#4687e8", "#e69525", "#9c6ade", "#dd637f", "#607d8b"];
+/** 绘制可悬停、触摸、键盘查看数值的 SVG 时间序列图。
+ * @param series 要显示的曲线及其采样点。
+ * @param step 横轴采样间隔，单位为秒。
+ * @param unit 曲线数值单位。
+ * @param title 图表标题。
+ * @param description 图表说明，可选。
+ * @param start 图表时间范围起点，Unix 秒，可选；缺省时由数据计算。
+ * @param end 图表时间范围终点，Unix 秒，可选；缺省时由数据计算。
+ * @param loading 是否正在加载数据，默认 false。
+ * @param windowSeconds PromQL rate 窗口秒数，可选，用于说明计算窗口。
+ * @returns SVG 曲线、采样提示和图例组成的 React 元素。
+ */
 export default function TimeSeriesChart({ series, step, unit, title, description, start, end, loading = false, windowSeconds }: {
   series: ChartSeries[]; step: number; unit: ChartUnit; title: string; description?: string;
   start?: number; end?: number; loading?: boolean; windowSeconds?: number;
@@ -14,7 +26,15 @@ export default function TimeSeriesChart({ series, step, unit, title, description
   const to = end ?? Math.max(...all.map(point => point.time));
   const span = Math.max(to - from, step);
   const max = Math.max(...all.map(point => point.value), unit === "percent" ? 100 : 0.001) * 1.08;
+  /** 将 Unix 秒时间映射到 SVG 横坐标。
+   * @param time 采样点时间，Unix 秒。
+   * @returns SVG 坐标系中的横坐标。
+   */
   const x = (time: number) => 78 + (time - from) / span * 690;
+  /** 将指标值映射到 SVG 纵坐标。
+   * @param value 采样点指标值。
+   * @returns SVG 坐标系中的纵坐标。
+   */
   const y = (value: number) => 180 - value / max * 150;
   const selected = cursor === null ? [] : visible.map(({ item, index }) => ({
     name: item.name, color: COLORS[index % COLORS.length], point: nearestPoint(item.points, cursor),

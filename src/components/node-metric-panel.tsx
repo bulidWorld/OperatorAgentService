@@ -8,6 +8,15 @@ import type { NodeGroup, NodeGroupDetail, NodeGroupSelection } from "@/lib/prome
 type DeviceSeries = ChartSeries & { device?: string };
 export type NodePanelChart = { title: string; description: string; unit: ChartUnit; rate: boolean; series: DeviceSeries[] };
 
+/** 渲染一个 Node 指标面板，包括图表组设置和设备筛选。
+ * @param group 指标分组键。
+ * @param title 面板标题。
+ * @param charts 面板中的图表定义和曲线数据。
+ * @param range 当前组的起止时间、step 和 rate 窗口。
+ * @param selections 所有图表组当前的查询设置。
+ * @param global 全局查询设置，用于传递给组级控制器。
+ * @returns Node 指标面板 React 元素。
+ */
 export default function NodeMetricPanel({ group, title, charts, range, selections, global }: {
   group: NodeGroup; title: string; charts: NodePanelChart[]; range: NodeGroupDetail;
   selections: Record<NodeGroup, NodeGroupSelection>; global: NodeGroupSelection;

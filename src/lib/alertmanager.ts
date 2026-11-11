@@ -22,20 +22,37 @@ type StoredAlert = WebhookAlert & {
 
 const resourceLabels = ["pod", "node", "instance", "container", "deployment", "service", "namespace", "cluster"] as const;
 
+/** 从 Alertmanager 标签中推断告警对象及其命名空间。
+ * @param labels 单条告警携带的标签映射。
+ * @returns 推断出的对象类型、对象名称和命名空间；无法推断时对应字段为 null。
+ */
 export function alertResource(labels: Record<string, string>): { type: string | null; name: string | null; namespace: string | null } {
   const type = resourceLabels.find((key) => !!labels[key]) ?? null;
   return { type, name: type ? labels[type] : null, namespace: labels.namespace || null };
 }
 
+/** 检查值是否为只包含字符串值的对象。
+ * @param value 待检查的任意值。
+ * @returns 值符合字符串映射结构时返回 true。
+ */
 function stringMap(value: unknown): value is Record<string, string> {
   return !!value && typeof value === "object" && !Array.isArray(value) &&
     Object.values(value).every((item) => typeof item === "string");
 }
 
+/** 检查字符串能否解析为有效日期。
+ * @param value 待检查的日期值。
+ * @returns value 是有效日期字符串时返回 true。
+ */
 function validDate(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
+/** 校验并规范化 Alertmanager v4 webhook 中的告警列表。
+ * @param value JSON 解码后的 webhook 请求体。
+ * @returns 单条告警数组，包含指纹、原始告警内容和批次元数据。
+ * @throws webhook 版本、条数或告警字段不符合要求时抛出错误。
+ */
 export function parseWebhook(value: unknown): WebhookAlert[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("无效的 Alertmanager webhook 数据");
   const body = value as Record<string, unknown>;
@@ -62,6 +79,9 @@ export function parseWebhook(value: unknown): WebhookAlert[] {
   });
 }
 
+/** 查询 PostgreSQL 中当前所有活动告警，并映射为应用使用的结构。
+ * @returns 按接收时间倒序排列的 firing 告警列表。
+ */
 export async function getPushedAlerts(): Promise<StoredAlert[]> {
   const result = await getDatabase().query<{
     fingerprint: string; labels: Record<string, string>; annotations: Record<string, string>;
@@ -82,6 +102,11 @@ export async function getPushedAlerts(): Promise<StoredAlert[]> {
   }));
 }
 
+/** 在单个事务中应用一批 firing/resolved 告警更新。
+ * @param alerts 已解析的 webhook 告警列表。
+ * @returns 提交后数据库中的活动告警数量。
+ * @throws 数据库操作失败或活动告警数超过 10000 条时回滚并抛出错误。
+ */
 export async function applyWebhook(alerts: WebhookAlert[]): Promise<number> {
   const client = await getDatabase().connect();
   try {

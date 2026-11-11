@@ -2,9 +2,18 @@ import { queryStep, rateWindow, TIME_RANGES, type StepSelection } from "../chart
 import { queryRange, type Sample } from "./http";
 import { businessLog, errorLog, withLogContext } from "../logger";
 
+/** 创建用于匹配单个 Node 的 PromQL 标签选择器。
+ * @param instance Prometheus instance 标签的完整值。
+ * @returns 对 instance 标签进行 JSON 转义的选择器。
+ */
 export function nodeSelector(instance: string) {
   return `instance=${JSON.stringify(instance)}`;
 }
+/** 为节点详情中的各项性能指标生成 PromQL。
+ * @param instance Prometheus instance 标签值。
+ * @param windowSeconds rate 函数计算窗口，单位为秒，默认 300 秒。
+ * @returns 指标名称到 PromQL 表达式的映射。
+ */
 export function nodeDetailQueries(instance: string, windowSeconds = 300) {
   const selector = nodeSelector(instance);
   const window = `${windowSeconds}s`;
@@ -49,6 +58,14 @@ export type NodeDetail = {
   minutes: number;
   stepSelection: StepSelection;
 };
+/** 查询单个 Node 在所选时间范围内的详情指标。
+ * @param instance 节点对应的 Prometheus instance 标签。
+ * @param minutes 全局时间范围，单位为分钟，默认 60。
+ * @param stepSelection 全局图表采样间隔，默认自动计算。
+ * @param selections 各图表组独立的时间范围、间隔或自定义起止时间。
+ * @returns 节点详情、分组范围、采样间隔和查询警告。
+ * @throws 时间范围无效或所有指标查询均失败时抛出错误。
+ */
 export async function getNodeDetail(instance: string, minutes = 60, stepSelection: StepSelection = "auto", selections?: Partial<Record<NodeGroup, NodeGroupSelection>>): Promise<NodeDetail> {
   if (!(TIME_RANGES as readonly number[]).includes(minutes)) throw new Error("无效的时间范围");
   const groups = {} as NodeDetail["groups"];
@@ -93,6 +110,10 @@ export async function getNodeDetail(instance: string, minutes = 60, stepSelectio
     return { instance, metrics, warnings, groups, start, end, step, windowSeconds, minutes, stepSelection, updatedAt: new Date().toISOString() };
   });
 }
+/** 从 Prometheus 样本列表中读取第一个有效的标量值。
+ * @param samples Prometheus 即时查询返回的样本列表。
+ * @returns 数值结果；样本缺失或数值无效时返回 null。
+ */
 export function scalar(samples: Sample[]): number | null {
   const value = samples[0]?.value?.[1];
   return value !== undefined && Number.isFinite(Number(value)) ? Number(value) : null;

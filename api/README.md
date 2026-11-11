@@ -41,8 +41,8 @@ Alertmanager 不提供统一的告警对象字段；服务从 `labels.pod`、`la
 ## 从契约生成代码
 
 ```bash
-npm run api:generate  # 从 api/openapi.yaml 生成 src/generated/api.ts
+npm run api:generate  # 从 api/openapi.yaml 生成 src/generated/api.types.ts
 npm run typecheck     # 检查生成结果是否最新，并检查路由响应类型
 ```
 
-Node 生态有 OpenAPI Generator 等工具，可以生成 Express 服务端骨架和多种客户端。当前项目使用 Next.js App Router，因此采用 `openapi-typescript` 生成接口类型，并在路由响应中引用这些类型；路由方法仍由 Next.js 文件系统路由实现，请求运行时校验仍由现有处理器执行。
+Node 生态有 OpenAPI Generator 等工具，可以生成 Express 服务端骨架和多种客户端。当前项目使用 Next.js App Router，因此采用 `openapi-typescript` 生成接口类型，并在路由响应中引用这些类型；[src/generated/api.ts](../src/generated/api.ts) 是手写的浏览器请求层，负责实际发起三个 GET 请求。路由方法仍由 Next.js 文件系统路由实现，请求运行时校验仍由现有处理器执行。逐步调用路径见 [调用链.md](调用链.md)。

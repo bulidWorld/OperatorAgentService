@@ -34,6 +34,11 @@ const combined: Partial<Record<NodeGroup, (keyof NodeDetail["metrics"])[][]>> = 
   network: [["receive", "transmit"]],
   disk: [["diskRead", "diskWrite"], ["diskReadIops", "diskWriteIops"], ["diskBusy"]],
 };
+/** 服务端渲染指定 Node 的性能详情页。
+ * @param params 动态路由参数，包含 Prometheus instance。
+ * @param searchParams 全局和各图表组的时间范围、step、自定义起止时间。
+ * @returns 节点详情图表页面；查询失败时返回带错误提示的页面内容。
+ */
 export default async function NodeDetailPage({ params, searchParams }: {
   params: Promise<{ instance: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -44,6 +49,10 @@ export default async function NodeDetailPage({ params, searchParams }: {
   const minutes = (TIME_RANGES as readonly number[]).includes(selected) ? selected : 60;
   const rawStep = search.step || "auto";
   const stepSelection: StepSelection = rawStep === "auto" ? "auto" : isStepSelection(Number(rawStep)) ? Number(rawStep) as StepSelection : "auto";
+  /** 将 URL 查询参数转换为 Unix 秒时间戳。
+   * @param value 单个字符串、重复参数数组或未提供的值。
+   * @returns 安全整数时间戳；非单值或无效值返回 undefined。
+   */
   const timestamp = (value: string | string[] | undefined) => typeof value === "string" && value !== "" && Number.isSafeInteger(Number(value)) ? Number(value) : undefined;
   const globalFrom = timestamp(search.From);
   const globalTo = timestamp(search.To);

@@ -2,6 +2,10 @@ import { Pool } from "pg";
 
 let pool: Pool | undefined;
 
+/** 获取进程级共享的 PostgreSQL 连接池，并在首次调用时校验连接环境变量。
+ * @returns 已配置的 PostgreSQL 连接池。
+ * @throws 缺少必需环境变量或 DB_PORT 无效时抛出错误。
+ */
 export function getDatabase(): Pool {
   if (pool) return pool;
   const names = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"] as const;

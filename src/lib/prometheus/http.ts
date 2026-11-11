@@ -14,6 +14,12 @@ export type Alert = {
   activeAt?: string;
   value: string;
 };
+/** 发送 Prometheus HTTP API 请求，并统一处理认证、超时、错误和出站日志。
+ * @param path `/api/v1/` 下的 Prometheus API 路径。
+ * @param params 要编码为查询参数的键值映射；undefined 值会被忽略。
+ * @returns Prometheus 响应中的 data 字段，类型由调用方指定。
+ * @throws 未配置数据源、HTTP/API 请求失败或请求超时时抛出错误。
+ */
 async function request<T>(
   path: string,
   params: Record<string, string | number | undefined> = {},
@@ -84,9 +90,21 @@ async function request<T>(
     });
   }
 }
+/** 执行 Prometheus 即时查询。
+ * @param query PromQL 查询表达式。
+ * @param time 可选的查询时间戳，单位为 Unix 秒。
+ * @returns 即时查询的结果类型和样本列表。
+ */
 export function query(query: string, time?: number) {
   return request<QueryResult>("query", { query, time });
 }
+/** 执行 Prometheus 历史区间查询。
+ * @param query PromQL 查询表达式。
+ * @param start 查询开始时间，Unix 秒。
+ * @param end 查询结束时间，Unix 秒。
+ * @param step 相邻采样点的间隔，单位为秒。
+ * @returns 区间查询的结果类型和样本列表。
+ */
 export function queryRange(
   query: string,
   start: number,
@@ -95,26 +113,52 @@ export function queryRange(
 ) {
   return request<QueryResult>("query_range", { query, start, end, step });
 }
+/** 查询 Prometheus 当前告警。
+ * @returns 告警数组。
+ */
 export function getAlerts() {
   return request<{ alerts: Alert[] }>("alerts");
 }
+/** 查询 Prometheus 告警规则组。
+ * @returns 规则组数据；上游结构暂以 unknown 表示。
+ */
 export function getRules() {
   return request<{ groups: unknown[] }>("rules");
 }
+/** 查询 Prometheus 活动和已丢弃的抓取目标。
+ * @returns 活动目标及已丢弃目标数组。
+ */
 export function getTargets() {
   return request<{ activeTargets: unknown[]; droppedTargets: unknown[] }>(
     "targets",
   );
 }
+/** 查询 Prometheus 已知标签名称。
+ * @returns 标签名称数组。
+ */
 export function getLabels() {
   return request<string[]>("labels");
 }
+/** 查询一个标签下的所有可用值。
+ * @param label 标签名称，会在构造 URL 路径前进行编码。
+ * @returns 标签值数组。
+ */
 export function getLabelValues(label: string) {
   return request<string[]>(`label/${encodeURIComponent(label)}/values`);
 }
+/** 查询 Prometheus 指标元数据。
+ * @param metric 可选的指标名过滤条件。
+ * @returns 按指标名组织的元数据记录。
+ */
 export function getMetadata(metric?: string) {
   return request<Record<string, unknown[]>>("metadata", { metric });
 }
+/** 按标签匹配表达式查询时间序列。
+ * @param match Prometheus series 匹配表达式。
+ * @param start 可选的查询起始时间，Unix 秒。
+ * @param end 可选的查询结束时间，Unix 秒。
+ * @returns 匹配的时间序列标签集。
+ */
 export function getSeries(match: string, start?: number, end?: number) {
   return request<Record<string, string>[]>("series", {
     "match[]": match,

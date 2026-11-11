@@ -3,8 +3,18 @@ import { MANUAL_STEPS, queryStep } from "@/lib/chart";
 import type { NodeGroup, NodeGroupSelection } from "@/lib/prometheus/node-detail";
 import NodeCustomRange from "@/components/node-custom-range";
 
+/** 渲染单个 Node 指标组的 step 和时间范围控件。
+ * @param group 当前图表组名称。
+ * @param selections 所有图表组当前选中的查询范围。
+ * @param global 全局时间范围、step 和自定义起止时间。
+ * @returns GET 表单形式的图表组控件。
+ */
 export default function NodeChartControl({ group, selections, global }: { group: NodeGroup; selections: Record<NodeGroup, NodeGroupSelection>; global: NodeGroupSelection }) {
   const selected = selections[group];
+  /** 将秒数转成 step 控件使用的标签。
+   * @param seconds 采样间隔，单位为秒。
+   * @returns 1min、5min 或以秒表示的标签。
+   */
   const label = (seconds: number) => seconds === 60 ? "1min" : seconds === 300 ? "5min" : `${seconds}s`;
   return <form className="node-chart-controls" method="get">
     <input type="hidden" name="minutes" value={global.minutes} />

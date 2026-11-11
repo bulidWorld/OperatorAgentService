@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize PostgreSQL schema from src/main/resources/db/*.xml.
+"""Synchronize PostgreSQL schema from db/*.xml.
 
 Requires psycopg (v3) or psycopg2. Existing objects are safe because the XML
 statements are idempotent; a checksum ledger prevents rerunning unchanged SQL.
@@ -9,8 +9,8 @@ import argparse, hashlib, os, re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DIR = ROOT / "src/main/resources/db"
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DIR = ROOT / "db"
 
 def qident(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
@@ -139,6 +139,8 @@ def main():
     conn = connect()
     try:
         cur = conn.cursor()
+        # Serialize startup migrations when multiple application replicas start together.
+        cur.execute("SELECT pg_advisory_lock(487391, 2)")
         cur.execute("""CREATE TABLE IF NOT EXISTS schema_xml_migration (
             statement_id varchar(200) PRIMARY KEY,
             checksum varchar(64) NOT NULL,

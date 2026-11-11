@@ -25,7 +25,7 @@ npm start
 
 ## 分层与 Agent 接入
 
-HTTP 接口的 OpenAPI 契约见 [api/openapi.yaml](api/openapi.yaml)，请求参数、响应结构、错误码和 webhook 示例见 [api/README.md](api/README.md)。修改接口时先更新 YAML，运行 `npm run api:generate` 生成 TypeScript 类型，再实现路由；`npm run typecheck` 会检查生成代码是否与 YAML 同步，并检查路由响应类型。
+HTTP 接口的 OpenAPI 契约见 [api/openapi.yaml](api/openapi.yaml)，请求参数、响应结构、错误码和 webhook 示例见 [api/README.md](api/README.md)，详细调用路径见 [api/调用链.md](api/调用链.md)。修改接口时先更新 YAML，运行 `npm run api:generate` 生成 TypeScript 类型，再实现路由；`npm run typecheck` 会检查生成代码是否与 YAML 同步，并检查路由响应类型。
 
 - `src/lib/prometheus/http.ts`：原始 HTTP 适配层，一个接口对应一个函数：`query`、`queryRange`、`getAlerts`、`getRules`、`getTargets`、`getLabels`、`getLabelValues`、`getMetadata`、`getSeries`。保留 Prometheus 原始响应结构，有超时、HTTP/API 错误处理及可选 Bearer Token。
 - `src/lib/prometheus/business.ts`：明确的业务 PromQL 函数，分别导出 `getNodeCpuUsage`、`getNodeMemoryUsage`、`getNodeNetworkReceive`、`getNodeAvailability`、`getPodCpuUsage`、`getPodMemoryUsage`、`getPodNetworkReceive`、`getPodAvailability`、`getCpuTrend`、`getResourceAlerts`。Pod 查询接受可选 namespace。`getDashboard` 仅负责页面聚合；`mergeResources` 按实例或 namespace/pod 合并，缺失值为 null。
@@ -68,6 +68,7 @@ kubectl -n monitoring create secret generic operator-agent-service-db \
   --from-literal=password='数据库密码'
 # 修改 deploy/kubernetes.yaml 中镜像地址、namespace 和 Prometheus URL
 kubectl apply -f deploy/kubernetes.yaml
+# Pod 启动时会先运行 scripts/sync_schema.py；同步成功后再启动 Next.js
 kubectl -n monitoring port-forward svc/operator-agent-service 3000:80
 ```
 
@@ -75,7 +76,9 @@ kubectl -n monitoring port-forward svc/operator-agent-service 3000:80
 
 ## PostgreSQL 数据库
 
-数据库连接使用 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD` 环境变量。数据库及用户需先创建；应用账号需要对活动告警表进行 `SELECT`、`INSERT`、`UPDATE`、`DELETE`。表结构位于 `src/main/resources/db/001_alertmanager_active_alerts.xml`，依照 `contexat/开发/数据库/database.xsd` 编写。上线前在具有数据库 DDL 权限的环境中执行：
+数据库连接使用 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD` 环境变量。数据库及用户需先创建；容器启动会先从 `db/*.xml` 同步 PostgreSQL 表结构，同步成功后才启动 Node 服务。应用数据库用户需要 `SELECT`、`INSERT`、`UPDATE`、`DELETE` 告警表，并有权限创建和变更表、索引及同步审计表。表结构依照 `contexat/开发/数据库/database.xsd` 编写。Docker 镜像内包含 Python 3 和 `py3-psycopg2` 驱动，脚本优先使用 psycopg v3，未安装时自动回退 psycopg2。
+
+手动检查或在本地执行同步时：
 
 ```bash
 python3 -m pip install 'psycopg[binary]'
@@ -84,7 +87,7 @@ python3 contexat/开发/数据库/sync_schema.py --dry-run
 python3 contexat/开发/数据库/sync_schema.py
 ```
 
-同步脚本会记录执行历史，重复运行不会重复创建表。数据库集成测试可在已同步的测试库中设置 `TEST_DATABASE=1` 后运行 `npm test`。原 JSON 告警文件不会自动导入 PostgreSQL；若需保留旧活动告警，请在切换前迁移数据或让 Alertmanager 重新发送 firing 告警。
+同步脚本默认读取仓库根目录 `db/`，也可以通过 `--dir` 指定目录；会记录执行历史，并用 PostgreSQL advisory lock 串行化并发实例的启动同步。重复运行不会重复创建表。数据库集成测试可在已同步的测试库中设置 `TEST_DATABASE=1` 后运行 `npm test`。原 JSON 告警文件不会自动导入 PostgreSQL；若需保留旧活动告警，请在切换前迁移数据或让 Alertmanager 重新发送 firing 告警。
 
 活动告警表单独保存告警名称、级别、对象类型、对象名称、namespace、摘要、描述、来源链接和时间，便于查询；`labels`、`annotations`、`alert_payload` 保留完整单条告警，`webhook_context` 保留该批次除 `alerts` 外的顶层字段。对象类型和名称从 `pod`、`node`、`instance`、`container` 等标签推断；Alertmanager 本身没有统一的“告警对象”字段。新增字段后需再次运行同步脚本，已有行的新增字段可能为空。
 
