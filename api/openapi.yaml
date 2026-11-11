@@ -1,0 +1,227 @@
+openapi: 3.0.3
+info:
+  title: Operator Agent Service API
+  version: 1.0.0
+  description: Kubernetes 监控查询和 Alertmanager webhook 接口。所有时间字符串使用 ISO 8601。
+servers:
+  - url: /
+paths:
+  /api/monitor:
+    get:
+      operationId: getMonitor
+      summary: 查询 Node 或 Pod 监控面板
+      parameters:
+        - name: scope
+          in: query
+          description: 默认 nodes
+          schema: { type: string, enum: [nodes, pods], default: nodes }
+        - name: minutes
+          in: query
+          description: 默认 60
+          schema: { type: integer, enum: [15, 60, 360, 1440], default: 60 }
+        - name: step
+          in: query
+          description: Prometheus query_range 计算间隔，单位秒；默认 auto
+          schema: { type: string, enum: [auto, '5', '15', '30', '60', '300'], default: auto }
+      responses:
+        '200':
+          description: 面板数据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/node-status:
+    get:
+      operationId: getNodeStatus
+      summary: 查询节点可用状态
+      responses:
+        '200':
+          description: 节点名称到可用状态的映射；演示模式返回 null
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [statuses]
+                properties:
+                  statuses:
+                    nullable: true
+                    type: object
+                    additionalProperties: { type: boolean }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/alerts:
+    get:
+      operationId: getAlerts
+      summary: 查询资源告警
+      description: 配置 webhook token 时从 PostgreSQL 读取活动告警；否则读取 Prometheus。演示模式返回空数组且不含 source。
+      responses:
+        '200':
+          description: 资源告警列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alerts]
+                properties:
+                  source: { type: string, enum: [alertmanager, prometheus] }
+                  alerts:
+                    type: array
+                    items: { $ref: '#/components/schemas/AlertRow' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/webhooks/alertmanager:
+    post:
+      operationId: receiveAlertmanagerWebhook
+      summary: 接收 Alertmanager v4 webhook
+      description: Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 fingerprint 更新，resolved 删除活动告警。完整原始数据保留在 PostgreSQL。
+      security:
+        - alertmanagerBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertmanagerWebhook' }
+      responses:
+        '200':
+          description: 接收成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received, active]
+                properties:
+                  received: { type: integer, minimum: 0 }
+                  active: { type: integer, minimum: 0 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    alertmanagerBearer:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: 参数或 JSON 数据无效
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Bearer token 错误
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMediaType:
+      description: Content-Type 不是 application/json
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: 告警保存失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: 未配置 webhook token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamError:
+      description: 数据源查询失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Resource:
+      type: object
+      required: [name, namespace, cpu, memory, network, ready]
+      properties:
+        name: { type: string }
+        namespace: { type: string }
+        cpu: { type: number, nullable: true, description: 'Node 为百分比，Pod 为 CPU 核数' }
+        memory: { type: number, nullable: true, description: 'Node 为百分比，Pod 为字节' }
+        network: { type: number, nullable: true, description: '字节/秒' }
+        ready: { type: boolean, nullable: true }
+    DashboardAlert:
+      type: object
+      required: [name, severity, state, resource, summary]
+      properties:
+        name: { type: string }
+        severity: { type: string }
+        state: { type: string }
+        resource: { type: string }
+        summary: { type: string }
+    Dashboard:
+      type: object
+      required: [mode, resources, alerts, trend, trendStep, trendWindow, stepSelection, updatedAt]
+      properties:
+        mode: { type: string, enum: [demo, live] }
+        resources:
+          type: array
+          items: { $ref: '#/components/schemas/Resource' }
+        alerts:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardAlert' }
+        trend:
+          type: array
+          items:
+            type: object
+            required: [time, value]
+            properties:
+              time: { type: number, description: Unix 时间戳（秒） }
+              value: { type: number }
+        trendStep: { type: number, description: 实际计算间隔（秒） }
+        trendWindow: { type: number, description: PromQL rate 窗口（秒） }
+        stepSelection:
+          oneOf:
+            - { type: string, enum: [auto] }
+            - { type: number, enum: [5, 15, 30, 60, 300] }
+        updatedAt: { type: string, format: date-time }
+    AlertRow:
+      type: object
+      required: [name, severity, resource, description, activeAt]
+      properties:
+        name: { type: string }
+        severity: { type: string }
+        resource: { type: string }
+        description: { type: string }
+        activeAt: { type: string, format: date-time, nullable: true }
+    StringMap:
+      type: object
+      additionalProperties: { type: string }
+    AlertmanagerAlert:
+      type: object
+      required: [status, labels, annotations, startsAt]
+      additionalProperties: true
+      properties:
+        status: { type: string, enum: [firing, resolved] }
+        labels: { $ref: '#/components/schemas/StringMap' }
+        annotations: { $ref: '#/components/schemas/StringMap' }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        generatorURL: { type: string }
+        fingerprint: { type: string, minLength: 1 }
+    AlertmanagerWebhook:
+      type: object
+      required: [version, alerts]
+      additionalProperties: true
+      properties:
+        version: { type: string, enum: ['4'] }
+        receiver: { type: string }
+        status: { type: string, enum: [firing, resolved] }
+        groupKey: { type: string }
+        groupLabels: { $ref: '#/components/schemas/StringMap' }
+        commonLabels: { $ref: '#/components/schemas/StringMap' }
+        commonAnnotations: { $ref: '#/components/schemas/StringMap' }
+        externalURL: { type: string }
+        truncatedAlerts: { type: integer, minimum: 0 }
+        alerts:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/AlertmanagerAlert' }

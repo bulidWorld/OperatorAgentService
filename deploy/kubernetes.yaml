@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operator-agent-service
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: operator-agent-service
+  template:
+    metadata:
+      labels:
+        app: operator-agent-service
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: web
+          image: your-registry/operator-agent-service:1.0.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PROMETHEUS_URL
+              value: http://prometheus.monitoring.svc.cluster.local:9090
+            - name: DEMO_MODE
+              value: "false"
+            - name: ALERTMANAGER_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-alertmanager
+                  key: webhook-token
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-db
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-db
+                  key: port
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-db
+                  key: name
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-db
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-db
+                  key: password
+          volumeMounts:
+            - name: logs
+              mountPath: /var/serivce/operator-agent-service/log
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+      volumes:
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: operator-agent-service
+  namespace: monitoring
+spec:
+  selector:
+    app: operator-agent-service
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP

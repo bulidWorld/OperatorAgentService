@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<database name="operator_agent_service" dialect="postgresql">
+  <tables>
+    <table name="alertmanager_active_alerts" comment="Alertmanager 当前活动告警">
+      <columns>
+        <column name="id" type="integer" identity="true" nullable="false" />
+        <column name="fingerprint" type="text" nullable="false" />
+        <column name="labels" type="jsonb" nullable="false" />
+        <column name="annotations" type="jsonb" nullable="false" />
+        <column name="alert_name" type="text" />
+        <column name="severity" type="text" />
+        <column name="resource_type" type="text" comment="从标签推断的告警对象类型" />
+        <column name="resource_name" type="text" comment="从标签推断的告警对象名称" />
+        <column name="namespace" type="text" />
+        <column name="summary" type="text" />
+        <column name="description" type="text" />
+        <column name="generator_url" type="text" />
+        <column name="alert_payload" type="jsonb" comment="完整单条告警原始数据" />
+        <column name="webhook_context" type="jsonb" comment="不含 alerts 的 webhook 批次元数据" />
+        <column name="starts_at" type="timestamptz" nullable="false" />
+        <column name="ends_at" type="timestamptz" />
+        <column name="received_at" type="timestamptz" nullable="false" default="now()" />
+      </columns>
+      <constraints>
+        <primary-key name="pk_alertmanager_active_alerts" columns="id" />
+        <unique name="uq_alertmanager_active_alerts_fingerprint" columns="fingerprint" />
+      </constraints>
+      <indexes>
+        <index name="idx_alertmanager_active_alerts_received_at">
+          <column name="received_at" order="DESC" />
+        </index>
+        <index name="idx_alertmanager_active_alerts_resource">
+          <column name="resource_type" />
+          <column name="resource_name" />
+        </index>
+      </indexes>
+    </table>
+  </tables>
+</database>
