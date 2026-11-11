@@ -23,10 +23,6 @@ type MonitorQuery = NonNullable<operations["getMonitor"]["parameters"]["query"]>
  * @param n 输入字节数。
  * @returns 保留一位小数并附带单位的字符串。
  */
-/** 将字节数格式化为适合监控表格显示的 KiB、MiB 或 GiB。
- * @param n 输入字节数。
- * @returns 保留一位小数并附带单位的字符串。
- */
 const bytes = (n: number) =>
   n >= 1024 ** 3
     ? `${(n / 1024 ** 3).toFixed(1)} GiB`

@@ -15,6 +15,9 @@ export async function GET(request: Request) {
   return withAccessLog(request, "Node状态查询", handleGet);
 }
 
+/** 查询 Prometheus 节点可用性并将状态关联到节点名称。
+ * @returns 节点状态映射；演示模式返回 null，查询失败返回 502 响应。
+ */
 async function handleGet() {
   try {
     if (process.env.DEMO_MODE === "true") return NextResponse.json({ statuses: null } satisfies NodeStatusResponse);

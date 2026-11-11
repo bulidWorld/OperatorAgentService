@@ -17,6 +17,10 @@ export async function GET(request: NextRequest) {
   return withAccessLog(request, "统一告警查询", () => handleGet(request));
 }
 
+/** 校验分页与刷新参数，执行可选的事件同步并读取统一告警页。
+ * @param request 当前告警查询请求及查询参数。
+ * @returns 告警数据响应；参数错误、同步超时或查询失败时返回相应错误状态。
+ */
 async function handleGet(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const refreshValue = params.get("refresh");

@@ -9,6 +9,13 @@ type ErrorResponse = operations["getKubernetesEvents"]["responses"][400]["conten
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/** 将可选查询参数解析为指定范围内的安全整数。
+ * @param value 原始查询参数；null 时采用默认值。
+ * @param fallback 参数缺失时使用的默认整数。
+ * @param min 允许的最小值，包含边界。
+ * @param max 允许的最大值，包含边界。
+ * @returns 有效整数；格式错误或超出范围时返回 null。
+ */
 function integerParam(value: string | null, fallback: number, min: number, max: number): number | null {
   if (value === null) return fallback;
   if (!/^\d+$/.test(value)) return null;
@@ -24,6 +31,10 @@ export async function GET(request: NextRequest) {
   return withAccessLog(request, "Kubernetes事件查询", () => handleGet(request));
 }
 
+/** 解析事件筛选条件并返回数据库中的分页查询结果。
+ * @param request 当前 Kubernetes Events 查询请求。
+ * @returns 事件查询 JSON；无效参数或游标返回 400，其他失败返回 500。
+ */
 async function handleGet(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const hours = integerParam(params.get("hours"), 24, 1, 720);

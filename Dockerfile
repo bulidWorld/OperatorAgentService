@@ -18,3 +18,4 @@ ENV SERVICE_NAME=operator-agent-service
 USER node
 EXPOSE 9090
 CMD ["sh", "/app/scripts/start.sh"]
+
