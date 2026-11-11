@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<database name="operator_agent_service" dialect="postgresql">
+  <tables>
+    <table name="resource_alert_events" comment="Alertmanager 告警和 Kubernetes Event 的统一记录">
+      <columns>
+        <column name="id" type="integer" identity="true" nullable="false" />
+        <column name="source" type="text" nullable="false" comment="alertmanager 或 kubernetes" />
+        <column name="external_id" type="text" nullable="false" comment="Alertmanager fingerprint 或 Kubernetes Event metadata.uid" />
+        <column name="object_type" type="text" comment="Kubernetes involvedObject.kind，如 Pod、Node、Job；Alertmanager 从标签推断" />
+        <column name="object_name" type="text" comment="对象名称" />
+        <column name="namespace" type="text" comment="对象所属命名空间；Node 等集群级对象为空" />
+        <column name="object_uid" type="text" comment="Kubernetes involvedObject.uid；区分同名对象重建" />
+        <column name="object_api_version" type="text" comment="Kubernetes involvedObject.apiVersion；区分相同 Kind 的不同 API 组" />
+        <column name="description" type="text" comment="Alertmanager 注释描述或 Kubernetes Event message" />
+        <column name="severity" type="text" comment="Alertmanager severity；Kubernetes Warning 对应 warning、Normal 对应 info" />
+        <column name="occurred_at" type="timestamptz" nullable="false" comment="告警 startsAt 或 Event 首次发生时间" />
+        <column name="alert_type" type="text" comment="Alertmanager alertname 或 Kubernetes Event reason" />
+        <column name="summary" type="text" comment="Alertmanager annotations.summary" />
+        <column name="labels" type="jsonb" comment="Alertmanager 原始 labels" />
+        <column name="annotations" type="jsonb" comment="Alertmanager 原始 annotations" />
+        <column name="generator_url" type="text" comment="Alertmanager generatorURL" />
+        <column name="ends_at" type="timestamptz" comment="Alertmanager endsAt" />
+        <column name="webhook_context" type="jsonb" comment="Alertmanager webhook 中除 alerts 外的顶层字段" />
+        <column name="event_type" type="text" comment="Kubernetes Event type 原值，如 Warning 或 Normal" />
+        <column name="event_count" type="integer" comment="Kubernetes Event 累计发生次数" />
+        <column name="source_component" type="text" comment="Kubernetes Event 报告组件，不等于 source" />
+        <column name="source_host" type="text" comment="Kubernetes Event 报告主机" />
+        <column name="last_seen_at" type="timestamptz" comment="Kubernetes Event 最近一次发生时间" />
+        <column name="raw_payload" type="jsonb" nullable="false" comment="完整 Alertmanager 单条告警或 Kubernetes core/v1 Event" />
+        <column name="updated_at" type="timestamptz" nullable="false" default="now()" comment="本服务最近一次接收或同步时间" />
+      </columns>
+      <constraints>
+        <primary-key name="pk_resource_alert_events" columns="id" />
+        <unique name="uq_resource_alert_events_source_external_id" columns="source,external_id" />
+      </constraints>
+      <indexes>
+        <index name="idx_resource_alert_events_source_updated">
+          <column name="source" />
+          <column name="updated_at" order="DESC" />
+        </index>
+        <index name="idx_resource_alert_events_event_time">
+          <column name="source" />
+          <column name="last_seen_at" order="DESC" />
+          <column name="id" order="DESC" />
+        </index>
+        <index name="idx_resource_alert_events_object_time">
+          <column name="namespace" />
+          <column name="object_type" />
+          <column name="object_name" />
+          <column name="last_seen_at" order="DESC" />
+        </index>
+        <index name="idx_resource_alert_events_object_uid_time">
+          <column name="object_uid" />
+          <column name="last_seen_at" order="DESC" />
+        </index>
+      </indexes>
+    </table>
+  </tables>
+</database>

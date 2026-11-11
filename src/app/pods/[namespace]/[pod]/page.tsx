@@ -2,6 +2,7 @@ import { getPodDetail, POD_GROUPS, type PodDetail, type PodGroup, type PodMetric
 import type { NodeGroup, NodeGroupSelection } from "@/lib/prometheus/node-detail";
 import NodeMetricPanel from "@/components/node-metric-panel";
 import NodeGlobalControl from "@/components/node-global-control";
+import PodRestartTimeline from "@/components/pod-restart-timeline";
 import { TIME_RANGES, isStepSelection, type ChartUnit, type StepSelection } from "@/lib/chart";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,7 @@ export default async function PodDetailPage({ params, searchParams }: {
     <a className="detail-back" href="/?scope=pods">← 返回 Pod 监控</a>
     <div className="page-heading"><div><div className="eyebrow">POD PERFORMANCE · {namespace}</div><h1>{pod} <span>Pod 性能详情</span></h1><p>悬停查看时间与数值；全局设置应用于所有面板，也可单独调整。</p></div><NodeGlobalControl minutes={minutes} step={stepSelection} from={globalFrom} to={globalTo} /></div>
     {detail.warnings.length > 0 && <div className="error" role="alert">部分性能指标查询失败，可刷新重试；已成功的指标仍然显示。</div>}
+    <PodRestartTimeline events={detail.restartEvents} start={detail.restartWindowStart} end={detail.restartWindowEnd} warning={detail.restartWarning} />
     <div className="performance-charts">{[["cpu", "network"], ["memory", "disk"]].map((column, index) => <div className="performance-column" key={index}>{column.map(key => {
       const group = layout.find(item => item.key === key)!;
       const range = detail.groups[group.key];

@@ -47,7 +47,7 @@ let cleanupTimer: NodeJS.Timeout | undefined;
 export function logDirectory() {
   const service = process.env.SERVICE_NAME || "operator-agent-service";
   if (!/^[a-zA-Z0-9_-]+$/.test(service)) throw new Error("Invalid SERVICE_NAME");
-  return process.env.LOG_DIR || `/var/serivce/${service}/log`;
+  return process.env.LOG_DIR || `/var/service/${service}/log`;
 }
 
 /** 删除超过保留期限的服务日志文件。
@@ -76,9 +76,27 @@ function write(category: Category, event: string, fields: Record<string, unknown
   fields = { ...logContext.getStore(), ...fields };
   const description = describe(event, fields).replace(/[\r\n]/g, " ");
   const timestamp = now.toISOString();
+  const requestedLevel = String(fields.level || "INFO").toUpperCase();
+  const level = category === "error" ? "ERROR"
+    : requestedLevel === "DEBUG" || requestedLevel === "WARN" ? requestedLevel : "INFO";
+  const logType = category === "error" ? "exception"
+    : category === "http" && fields.direction === "inbound" ? "access"
+    : category;
+  const structuredRecord = JSON.stringify({
+    ...fields,
+    timestamp,
+    level,
+    log_type: logType,
+    trace_id: fields.traceId ?? fields.trace_id,
+    duration_ms: fields.durationMs ?? fields.duration_ms,
+    exceptionInfo: category === "error" ? fields.stack : undefined,
+    message: description,
+    event,
+  });
   const categoryLabel = { business: "业务日志", http: "HTTP请求日志", error: "报错日志" }[category];
-  const record = `[${timestamp}] [${category === "error" ? "ERROR" : "INFO"}] [${categoryLabel}] ${description} | ${JSON.stringify({ ...fields, timestamp, category, event, description })}`;
-  if (category === "error") console.error(record);
+  const record = `[${timestamp}] [${level}] [${categoryLabel}] ${description} | ${JSON.stringify({ ...fields, timestamp, category, event, description })}`;
+  if (category === "error") console.error(structuredRecord);
+  else console.log(structuredRecord);
   try {
     const directory = logDirectory();
     if (directory !== activeDirectory || now.getTime() - lastCleanup >= 60 * 60 * 1000) {
@@ -112,6 +130,46 @@ export const businessLog = (event: string, fields: Record<string, unknown> = {})
  * @returns 无返回值。
  */
 export const httpLog = (event: string, fields: Record<string, unknown>) => write("http", event, fields);
+/** 记录入站请求的开始、状态和耗时，并为请求链附加 traceId。
+ * @param request HTTP 方法和完整 URL。
+ * @param operation 面向业务的接口名称。
+ * @param action 返回 Response 的请求处理函数。
+ * @returns action 返回的 Response；异常会记录后继续抛出。
+ */
+export async function withAccessLog<T extends { status: number }>(
+  request: { method: string; url: string },
+  operation: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const requestId = randomUUID();
+  const traceId = requestId;
+  const calledAt = new Date().toISOString();
+  const started = performance.now();
+  const context = {
+    requestId, traceId, direction: "inbound", method: request.method,
+    path: new URL(request.url).pathname, operation, calledAt,
+  };
+  return withLogContext({ requestId, traceId, operation }, async () => {
+    httpLog("request.started", context);
+    let status = 500;
+    let errorMessage: string | undefined;
+    try {
+      const response = await action();
+      status = response.status;
+      return response;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+      errorLog("request.unhandled", error, context);
+      throw error;
+    } finally {
+      httpLog("request.completed", {
+        ...context, returnedAt: new Date().toISOString(),
+        durationMs: Math.round(performance.now() - started), status,
+        result: status < 400 ? "success" : "error", errorMessage,
+      });
+    }
+  });
+}
 /** 写入异常日志，包括异常消息和堆栈。
  * @param event 异常事件标识。
  * @param error 捕获到的异常或其他错误值。

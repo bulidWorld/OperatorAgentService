@@ -1110,3 +1110,33 @@ footer > span:first-child {
 .alert-list th:nth-child(5), .alert-list td:nth-child(5) { width: 19%; }
 .alert-list .alert-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 @media (max-width: 700px) { .alert-list table { min-width: 720px; } }
+
+.restart-count { font-variant-numeric: tabular-nums; color: #334155; font-weight: 600; }
+.pod-restart-history { margin-top: 20px; overflow: hidden; }
+.pod-restart-history .panel-heading { display: flex; align-items: center; padding: 18px 22px; border-bottom: 1px solid #edf0f4; }
+.pod-restart-history .panel-heading h2 { margin: 0; color: #243b53; font-size: 15px; }
+.pod-restart-history .panel-heading p { margin: 5px 0 0; color: #738096; font-size: 12px; }
+.restart-timeline { position: relative; height: 92px; margin: 8px 24px 0; }
+.restart-axis { position: absolute; top: 43px; left: 6%; right: 6%; height: 2px; background: #cbd5e1; }
+.restart-tick { position: absolute; top: 52px; color: #738096; font-size: 11px; white-space: nowrap; }
+.restart-tick i { position: absolute; top: -11px; left: 0; height: 8px; border-left: 1px solid #94a3b8; }
+.restart-tick-start { left: 6%; }
+.restart-tick-middle { left: 50%; transform: translateX(-50%); }
+.restart-tick-middle i { left: 50%; }
+.restart-tick-end { right: 6%; }
+.restart-tick-end i { left: auto; right: 0; }
+.restart-marker { position: absolute; z-index: 1; top: 36px; display: grid; width: 16px; height: 16px; place-items: center; padding: 0; transform: translateX(-50%); border: 2px solid #fff; border-radius: 50%; background: #f97316; box-shadow: 0 0 0 1px #f97316; cursor: help; }
+.restart-marker span { width: 5px; height: 5px; border-radius: 50%; background: white; }
+.restart-marker:hover, .restart-marker:focus-visible { z-index: 2; transform: translateX(-50%) scale(1.25); outline: 2px solid #fdba74; outline-offset: 2px; }
+.restart-table-wrap { overflow-x: auto; border-top: 1px solid #edf0f4; }
+.restart-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.restart-table th, .restart-table td { padding: 10px 22px; border-bottom: 1px solid #edf0f4; }
+.restart-table th { color: #738096; font-weight: 600; background: #fafbfc; }
+.restart-table td { color: #334155; }
+.restart-table tr:last-child td { border-bottom: 0; }
+.restart-table td:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 700px) {
+  .restart-timeline { margin-right: 12px; margin-left: 12px; }
+  .pod-restart-history .panel-heading { padding: 16px; }
+  .restart-table th, .restart-table td { padding: 9px 16px; }
+}

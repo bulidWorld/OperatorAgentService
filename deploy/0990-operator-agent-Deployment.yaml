@@ -1,3 +1,31 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator-agent-service
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: operator-agent-service-events
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: operator-agent-service-events
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: operator-agent-service-events
+subjects:
+  - kind: ServiceAccount
+    name: operator-agent-service
+    namespace: monitoring
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,7 +41,8 @@ spec:
       labels:
         app: operator-agent-service
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: operator-agent-service
+      automountServiceAccountToken: true
       securityContext:
         fsGroup: 1000
       containers:
@@ -21,11 +50,10 @@ spec:
           image: your-registry/operator-agent-service:1.0.0
           ports:
             - containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: operator-agent-service-config
           env:
-            - name: PROMETHEUS_URL
-              value: http://prometheus.monitoring.svc.cluster.local:9090
-            - name: DEMO_MODE
-              value: "false"
             - name: ALERTMANAGER_WEBHOOK_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -58,7 +86,7 @@ spec:
                   key: password
           volumeMounts:
             - name: logs
-              mountPath: /var/serivce/operator-agent-service/log
+              mountPath: /var/service/operator-agent-service/log
           resources:
             requests:
               cpu: 100m

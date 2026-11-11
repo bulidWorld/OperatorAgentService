@@ -7,6 +7,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { businessLog } = await import("./lib/logger");
     businessLog("service.started", { service: process.env.SERVICE_NAME || "operator-agent-service" });
+    const { startKubernetesEventScheduler } = await import("./lib/kubernetes-events");
+    startKubernetesEventScheduler();
   }
 }
 

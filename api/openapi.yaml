@@ -2,10 +2,59 @@ openapi: 3.0.3
 info:
   title: Operator Agent Service API
   version: 1.0.0
-  description: Kubernetes 监控查询和 Alertmanager webhook 接口。所有时间字符串使用 ISO 8601。
+  description: Kubernetes 监控查询、集群 Events 查询和 Alertmanager webhook 接口。所有时间字符串使用 ISO 8601。
 servers:
   - url: /
 paths:
+  /api/events:
+    get:
+      operationId: getKubernetesEvents
+      summary: 查询所有对象类型的 Kubernetes Events
+      description: >-
+        查询 PostgreSQL 中 source=kubernetes 的事件，覆盖有命名空间和集群级对象，
+        不限定 involvedObject.kind。后台采集器使用 ServiceAccount 对 core/v1 Events
+        每 5 分钟执行集群范围分页 LIST，按 (source, external_id) 更新统一表。
+        结果按 lastSeenAt DESC、id DESC 排列；cursor 为不透明分页游标。
+      parameters:
+        - name: namespace
+          in: query
+          description: 不传时包含所有命名空间及集群级事件
+          schema: { type: string, minLength: 1, maxLength: 63 }
+        - name: objectType
+          in: query
+          description: involvedObject.kind，如 Pod、Node、Deployment
+          schema: { type: string, minLength: 1 }
+        - name: objectName
+          in: query
+          schema: { type: string, minLength: 1 }
+        - name: objectUid
+          in: query
+          description: 用于精确筛选重建前后的同名对象
+          schema: { type: string, minLength: 1 }
+        - name: eventType
+          in: query
+          description: Kubernetes Event type 原值
+          schema: { type: string, minLength: 1 }
+        - name: hours
+          in: query
+          description: 以查询时刻为终点的时间窗口，默认 24 小时
+          schema: { type: integer, minimum: 1, maximum: 720, default: 24 }
+        - name: limit
+          in: query
+          description: 返回最新记录的上限，默认 100 条
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: cursor
+          in: query
+          description: 上一页响应的 nextCursor；需与筛选条件保持一致
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Kubernetes Events；没有事件时 events 为空数组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KubernetesEventsResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /api/monitor:
     get:
       operationId: getMonitor
@@ -53,26 +102,44 @@ paths:
     get:
       operationId: getAlerts
       summary: 查询资源告警
-      description: 配置 webhook token 时从 PostgreSQL 读取活动告警；否则读取 Prometheus。演示模式返回空数组且不含 source。
+      description: 从统一表 resource_alert_events 查询 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
+      parameters:
+        - name: refresh
+          in: query
+          description: true 时在查询数据库前立即同步 Kubernetes Events；默认 false
+          schema: { type: boolean, default: false }
+        - name: limit
+          in: query
+          description: 每页最多返回的告警数，默认 100
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: cursor
+          in: query
+          description: 上一页响应的 nextCursor
+          schema: { type: string, minLength: 1 }
       responses:
         '200':
-          description: 资源告警列表
+          description: 数据库中的资源告警；refresh=true 时包含本次同步结果
           content:
             application/json:
               schema:
                 type: object
-                required: [alerts]
+                required: [source, refreshed, synchronizedEvents, alerts, nextCursor]
                 properties:
-                  source: { type: string, enum: [alertmanager, prometheus] }
+                  source: { type: string, enum: [database] }
+                  refreshed: { type: boolean, description: 本次请求是否触发了 Kubernetes 同步 }
+                  synchronizedEvents: { type: integer, nullable: true, description: 本次读取到的 Kubernetes Event 数；未同步时为 null }
                   alerts:
                     type: array
                     items: { $ref: '#/components/schemas/AlertRow' }
+                  nextCursor: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
         '502': { $ref: '#/components/responses/UpstreamError' }
   /api/webhooks/alertmanager:
     post:
       operationId: receiveAlertmanagerWebhook
       summary: 接收 Alertmanager v4 webhook
-      description: Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 fingerprint 更新，resolved 删除活动告警。完整原始数据保留在 PostgreSQL。
+      description: Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 删除对应活动告警。完整原始数据保留在 PostgreSQL。
       security:
         - alertmanagerBearer: []
       requestBody:
@@ -118,7 +185,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     ServerError:
-      description: 告警保存失败
+      description: 服务端存储或处理失败
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -138,6 +205,35 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    KubernetesEvent:
+      type: object
+      required: [eventUid, source, objectType, objectName, namespace, objectUid, objectApiVersion, description, severity, occurredAt, alertType, eventType, count, sourceComponent, sourceHost, lastSeenAt]
+      properties:
+        eventUid: { type: string, description: Kubernetes Event metadata.uid }
+        source: { type: string, enum: [kubernetes] }
+        objectType: { type: string, nullable: true, description: involvedObject.kind，如 Pod、Node；上游缺失时为空 }
+        objectName: { type: string, nullable: true, description: involvedObject.name }
+        namespace: { type: string, nullable: true, description: 集群级对象或上游未提供时为空 }
+        objectUid: { type: string, nullable: true, description: involvedObject.uid }
+        objectApiVersion: { type: string, nullable: true, description: involvedObject.apiVersion }
+        description: { type: string, nullable: true, description: Kubernetes Event message }
+        severity: { type: string, nullable: true, description: Warning 对应 warning、Normal 对应 info；其他值为空 }
+        occurredAt: { type: string, format: date-time, description: 首次发生时间；缺失时使用 metadata.creationTimestamp }
+        alertType: { type: string, nullable: true, description: Kubernetes Event reason }
+        eventType: { type: string, nullable: true, description: Kubernetes Event type 原值，如 Normal 或 Warning }
+        count: { type: integer, minimum: 1, description: 同一 Event 的累计发生次数，缺失时为 1 }
+        sourceComponent: { type: string, nullable: true }
+        sourceHost: { type: string, nullable: true }
+        lastSeenAt: { type: string, format: date-time }
+    KubernetesEventsResponse:
+      type: object
+      required: [queriedAt, events, nextCursor]
+      properties:
+        queriedAt: { type: string, format: date-time }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/KubernetesEvent' }
+        nextCursor: { type: string, nullable: true, description: 没有下一页时为 null }
     Resource:
       type: object
       required: [name, namespace, cpu, memory, network, ready]
@@ -148,6 +244,7 @@ components:
         memory: { type: number, nullable: true, description: 'Node 为百分比，Pod 为字节' }
         network: { type: number, nullable: true, description: '字节/秒' }
         ready: { type: boolean, nullable: true }
+        restarts24h: { type: number, nullable: true, description: 最近 24 小时容器重启次数，仅 Pod scope 返回；指标不可用时为 null }
     DashboardAlert:
       type: object
       required: [name, severity, state, resource, summary]
@@ -185,10 +282,12 @@ components:
         updatedAt: { type: string, format: date-time }
     AlertRow:
       type: object
-      required: [name, severity, resource, description, activeAt]
+      required: [source, name, severity, objectType, resource, description, activeAt]
       properties:
+        source: { type: string, enum: [alertmanager, kubernetes] }
         name: { type: string }
         severity: { type: string }
+        objectType: { type: string, nullable: true, description: Pod、Node 等对象类型 }
         resource: { type: string }
         description: { type: string }
         activeAt: { type: string, format: date-time, nullable: true }

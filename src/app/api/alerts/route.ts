@@ -1,62 +1,52 @@
-import { NextResponse } from "next/server";
-import { getResourceAlerts } from "@/lib/prometheus/business";
-import { alertResource, getPushedAlerts } from "@/lib/alertmanager";
+import { NextRequest, NextResponse } from "next/server";
+import { errorLog, withAccessLog } from "@/lib/logger";
+import { getStoredAlerts, syncKubernetesEvents } from "@/lib/kubernetes-events";
 import type { operations } from "@/generated/api.types";
-type AlertsResponse =
-  operations["getAlerts"]["responses"][200]["content"]["application/json"];
-type ErrorResponse =
-  operations["getAlerts"]["responses"][502]["content"]["application/json"];
+
+type AlertsResponse = operations["getAlerts"]["responses"][200]["content"]["application/json"];
+type ErrorResponse = operations["getAlerts"]["responses"][400]["content"]["application/json"];
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** 查询并格式化当前资源告警。
- * @returns 演示、Alertmanager PostgreSQL 或 Prometheus 告警列表；查询失败返回 502。
+/** 查询统一数据库中的告警，并可在刷新请求中先同步 Kubernetes Events。
+ * @param request 可选 refresh=true 查询参数。
+ * @returns 数据库中的 Alertmanager 告警和 Kubernetes Events。
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  return withAccessLog(request, "统一告警查询", () => handleGet(request));
+}
+
+async function handleGet(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+  const refreshValue = params.get("refresh");
+  if (refreshValue !== null && refreshValue !== "true" && refreshValue !== "false")
+    return NextResponse.json({ error: "refresh 只能是 true 或 false" } satisfies ErrorResponse, { status: 400 });
+  const rawLimit = params.get("limit") ?? "100";
+  const limit = /^\d+$/.test(rawLimit) ? Number(rawLimit) : NaN;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+    return NextResponse.json({ error: "limit 必须是 1 到 500 的整数" } satisfies ErrorResponse, { status: 400 });
+  const cursor = params.get("cursor") || undefined;
+  const refresh = refreshValue === "true";
   try {
-    if (process.env.DEMO_MODE === "true")
-      return NextResponse.json({ alerts: [] } satisfies AlertsResponse);
-    if (process.env.ALERTMANAGER_WEBHOOK_TOKEN) {
-      const alerts = await getPushedAlerts();
-      return NextResponse.json({
-        source: "alertmanager",
-        alerts: alerts.map((alert) => ({
-          name: alert.labels.alertname || "Alert",
-          severity: alert.labels.severity || "—",
-          resource:
-            alert.resourceName || alertResource(alert.labels).name || "—",
-          description:
-            alert.annotations.description || alert.annotations.summary || "—",
-          activeAt: alert.startsAt,
-        })),
-      } satisfies AlertsResponse);
+    let synchronizedEvents: number | null = null;
+    if (refresh) {
+      synchronizedEvents = await syncKubernetesEvents(true);
+      if (synchronizedEvents === null)
+        return NextResponse.json({ error: "等待其他实例完成事件同步超时" } satisfies ErrorResponse, { status: 502 });
     }
-    const { alerts } = await getResourceAlerts();
+    const page = await getStoredAlerts(limit, cursor);
     return NextResponse.json({
-      source: "prometheus",
-      alerts: alerts.map((alert) => ({
-        name: alert.labels.alertname || "Alert",
-        severity: alert.labels.severity || "—",
-        resource:
-          alert.labels.pod ||
-          alert.labels.instance ||
-          alert.labels.container ||
-          alert.labels.node ||
-          alert.labels.namespace ||
-          alert.labels.cluster ||
-          "—",
-        description:
-          alert.annotations.description || alert.annotations.summary || "—",
-        activeAt: alert.activeAt || null,
-      })),
+      source: "database",
+      refreshed: refresh,
+      synchronizedEvents,
+      ...page,
     } satisfies AlertsResponse);
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "告警查询失败",
-      } satisfies ErrorResponse,
-      { status: 502 },
-    );
+    errorLog("alerts.query.failed", error, { refresh, description: "统一告警查询失败" });
+    const invalidCursor = error instanceof Error && error.message.includes("分页游标无效");
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "告警查询失败",
+    } satisfies ErrorResponse, { status: invalidCursor ? 400 : refresh ? 502 : 500 });
   }
 }

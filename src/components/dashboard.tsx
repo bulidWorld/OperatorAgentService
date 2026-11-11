@@ -389,6 +389,7 @@ export default function Dashboard({
                     </th>
                     {scope === "pods" && <th>命名空间</th>}
                     <th>状态</th>
+                    {scope === "pods" && <th>最近24h重启</th>}
                     <th>CPU {scope === "nodes" ? "使用率" : "核数"}</th>
                     <th>内存{scope === "nodes" ? "使用率" : ""}</th>
                     <th>
@@ -437,6 +438,11 @@ export default function Dashboard({
                                 : "Not Ready"}
                         </span>
                       </td>
+                      {scope === "pods" && (
+                        <td className="restart-count">
+                          {r.restarts24h === null || r.restarts24h === undefined ? "—" : r.restarts24h}
+                        </td>
+                      )}
                       <td>
                         <Meter
                           value={r.cpu}

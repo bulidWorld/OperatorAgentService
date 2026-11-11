@@ -128,8 +128,10 @@ export const getPodAvailability = (namespace?: string) =>
  * @param namespace 可选的 Kubernetes namespace 过滤条件。
  * @returns 按 namespace 和 pod 聚合的重启次数样本；没有 kube_pod_info 时无对应样本。
  */
-export const getPodRestarts24h = (namespace?: string) =>
-  query(`sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{${namespace ? `namespace=${JSON.stringify(namespace)},` : ""}pod!=""}[24h])) or on (namespace, pod) (0 * count by (namespace, pod) (kube_pod_info{pod!=""${namespaceFilter(namespace)}}))`);
+export const getPodRestarts24h = (namespace?: string) => {
+  const selector = `pod!=""${namespaceFilter(namespace)}`;
+  return query(`sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{${selector}}[24h])) or on (namespace, pod) (0 * count by (namespace, pod) (kube_pod_container_status_restarts_total{${selector}}))`);
+};
 /** 将 namespace 转换为 PromQL 标签选择器片段。
  * @param namespace 可选的 namespace 名称。
  * @returns PromQL 标签过滤片段；未传 namespace 时返回空字符串。
@@ -260,10 +262,10 @@ async function loadDashboard(scope: Scope, minutes: number, stepSelection: StepS
     ? mergeNodeInventory(mergeResources(scope, [...metrics.slice(0, 3).map((m) => m.result), []]), inventory?.result || [], metrics[3].result)
     : mergeResources(scope, metrics.map((m) => m.result));
   if (scope === "pods") {
-    const restartCounts = new Map((restarts?.result || []).map((sample) => [
+    const restartCounts = new Map<string, number | null>((restarts?.result || []).map((sample) => [
       JSON.stringify([sample.metric.namespace || "", sample.metric.pod || ""]),
       sample.value && Number.isFinite(Number(sample.value[1])) ? Math.round(Number(sample.value[1])) : null,
-    ]));
+    ] as const));
     resources = resources.map((resource) => ({
       ...resource,
       restarts24h: restartCounts.get(JSON.stringify([resource.namespace, resource.name])) ?? null,

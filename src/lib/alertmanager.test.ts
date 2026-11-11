@@ -20,7 +20,8 @@ test("Alertmanager payload retains object labels and webhook metadata", () => {
       generatorURL: "https://prometheus.example.test/graph", values: { A: 1 },
     }],
   });
-  assert.deepEqual(alertResource(alerts[0].labels), { type: "pod", name: "api-1", namespace: "prod" });
+  assert.deepEqual(alertResource(alerts[0].labels), { type: "Pod", name: "api-1", namespace: "prod" });
+  assert.deepEqual(alertResource({ node: "worker-1" }), { type: "Node", name: "worker-1", namespace: null });
   assert.equal(alerts[0].generatorURL, "https://prometheus.example.test/graph");
   assert.deepEqual(alerts[0].rawAlert.values, { A: 1 });
   assert.equal(alerts[0].webhookContext.receiver, "operations");
@@ -41,7 +42,7 @@ test("PostgreSQL persists firing and resolved alerts", { skip: !process.env.TEST
     const matching = (await getPushedAlerts()).filter((alert) => alert.fingerprint === fingerprint);
     assert.equal(matching.length, 1);
     assert.equal(matching[0].labels.alertname, "PodDown");
-    assert.equal(matching[0].resourceType, "pod");
+    assert.equal(matching[0].resourceType, "Pod");
     assert.equal(matching[0].resourceName, "api-1");
     assert.equal(matching[0].namespace, "prod");
     assert.equal(matching[0].webhookContext.receiver, "operations");

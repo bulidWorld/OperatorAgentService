@@ -65,8 +65,11 @@ export function getNodeStatus(signal?: AbortSignal): Promise<NodeStatusResponse>
  * @returns 告警列表和数据来源。
  * @throws 请求失败或服务端返回错误时抛出错误。
  * @remarks 调用链：AlertsPage.load → getAlerts → getJson → fetch →
- * `/api/alerts` GET → PostgreSQL 活动告警或 Prometheus → 页面 alerts 状态。
+ * `/api/alerts` GET → PostgreSQL 统一告警表；refresh=true 时先同步 Kubernetes Events。
  */
-export function getAlerts(signal?: AbortSignal): Promise<AlertsResponse> {
-  return getJson<AlertsResponse>("/api/alerts", signal);
+export function getAlerts(refresh = false, cursor?: string, signal?: AbortSignal): Promise<AlertsResponse> {
+  const params = new URLSearchParams();
+  if (refresh) params.set("refresh", "true");
+  if (cursor) params.set("cursor", cursor);
+  return getJson<AlertsResponse>(`/api/alerts${params.size ? `?${params}` : ""}`, signal);
 }

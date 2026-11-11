@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-operator-agent-service-auth
+  namespace: database
+  labels:
+    cnpg.io/reload: "true"
+type: kubernetes.io/basic-auth
+stringData:
+  username: operatoragent
+  # 部署前请替换为实际使用的强密码，并同步更新 monitoring 命名空间中的连接 Secret。
+  password: "Changeme_123"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: pg-ha-operator-agent-service
+  namespace: database
+spec:
+  cluster:
+    name: pg-ha
+  name: operatoragent
+  login: true
+  passwordSecret:
+    name: pg-operator-agent-service-auth
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: pg-ha-operator-agent-service-db
+  namespace: database
+spec:
+  cluster:
+    name: pg-ha
+  name: operatoragent-db
+  owner: operatoragent
+  databaseReclaimPolicy: retain
+  extensions:
+    - name: pg_stat_statements
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: operator-agent-service-db
+  namespace: monitoring
+type: Opaque
+stringData:
+  host: pg-ha-rw.database.svc.cluster.local
+  port: "5432"
+  name: operatoragent-db
+  user: operatoragent
+  # 与 database 命名空间中的 pg-operator-agent-service-auth 密码保持一致。
+  password: "Changeme_123"

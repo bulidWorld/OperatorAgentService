@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { applyWebhook, parseWebhook } from "@/lib/alertmanager";
 import { businessLog, errorLog, httpLog } from "@/lib/logger";
@@ -50,9 +50,10 @@ async function readBody(request: NextRequest): Promise<string> {
  * @returns 接收数量与活动告警总数；按校验或存储结果返回对应 HTTP 状态。
  */
 export async function POST(request: NextRequest) {
+  const requestId = randomUUID();
   const calledAt = new Date().toISOString();
   const started = performance.now();
-  const context = { direction: "inbound", method: "POST", path: "/api/webhooks/alertmanager", operation: "Alertmanager告警接收", calledAt };
+  const context = { requestId, traceId: requestId, direction: "inbound", method: "POST", path: "/api/webhooks/alertmanager", operation: "Alertmanager告警接收", calledAt };
   httpLog("request.started", context);
   let status = 200;
   let errorMessage: string | undefined;

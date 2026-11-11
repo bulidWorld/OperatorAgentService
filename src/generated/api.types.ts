@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询所有对象类型的 Kubernetes Events
+         * @description 查询 PostgreSQL 中 source=kubernetes 的事件，覆盖有命名空间和集群级对象， 不限定 involvedObject.kind。后台采集器使用 ServiceAccount 对 core/v1 Events 每 5 分钟执行集群范围分页 LIST，按 (source, external_id) 更新统一表。 结果按 lastSeenAt DESC、id DESC 排列；cursor 为不透明分页游标。
+         */
+        get: operations["getKubernetesEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/monitor": {
         parameters: {
             query?: never;
@@ -47,7 +67,7 @@ export interface paths {
         };
         /**
          * 查询资源告警
-         * @description 配置 webhook token 时从 PostgreSQL 读取活动告警；否则读取 Prometheus。演示模式返回空数组且不含 source。
+         * @description 从统一表 resource_alert_events 查询 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
          */
         get: operations["getAlerts"];
         put?: never;
@@ -69,7 +89,7 @@ export interface paths {
         put?: never;
         /**
          * 接收 Alertmanager v4 webhook
-         * @description Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 fingerprint 更新，resolved 删除活动告警。完整原始数据保留在 PostgreSQL。
+         * @description Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 删除对应活动告警。完整原始数据保留在 PostgreSQL。
          */
         post: operations["receiveAlertmanagerWebhook"];
         delete?: never;
@@ -85,6 +105,48 @@ export interface components {
         Error: {
             error: string;
         };
+        KubernetesEvent: {
+            /** @description Kubernetes Event metadata.uid */
+            eventUid: string;
+            /** @enum {string} */
+            source: "kubernetes";
+            /** @description involvedObject.kind，如 Pod、Node；上游缺失时为空 */
+            objectType: string | null;
+            /** @description involvedObject.name */
+            objectName: string | null;
+            /** @description 集群级对象或上游未提供时为空 */
+            namespace: string | null;
+            /** @description involvedObject.uid */
+            objectUid: string | null;
+            /** @description involvedObject.apiVersion */
+            objectApiVersion: string | null;
+            /** @description Kubernetes Event message */
+            description: string | null;
+            /** @description Warning 对应 warning、Normal 对应 info；其他值为空 */
+            severity: string | null;
+            /**
+             * Format: date-time
+             * @description 首次发生时间；缺失时使用 metadata.creationTimestamp
+             */
+            occurredAt: string;
+            /** @description Kubernetes Event reason */
+            alertType: string | null;
+            /** @description Kubernetes Event type 原值，如 Normal 或 Warning */
+            eventType: string | null;
+            /** @description 同一 Event 的累计发生次数，缺失时为 1 */
+            count: number;
+            sourceComponent: string | null;
+            sourceHost: string | null;
+            /** Format: date-time */
+            lastSeenAt: string;
+        };
+        KubernetesEventsResponse: {
+            /** Format: date-time */
+            queriedAt: string;
+            events: components["schemas"]["KubernetesEvent"][];
+            /** @description 没有下一页时为 null */
+            nextCursor: string | null;
+        };
         Resource: {
             name: string;
             namespace: string;
@@ -95,6 +157,8 @@ export interface components {
             /** @description 字节/秒 */
             network: number | null;
             ready: boolean | null;
+            /** @description 最近 24 小时容器重启次数，仅 Pod scope 返回；指标不可用时为 null */
+            restarts24h?: number | null;
         };
         DashboardAlert: {
             name: string;
@@ -122,8 +186,12 @@ export interface components {
             updatedAt: string;
         };
         AlertRow: {
+            /** @enum {string} */
+            source: "alertmanager" | "kubernetes";
             name: string;
             severity: string;
+            /** @description Pod、Node 等对象类型 */
+            objectType: string | null;
             resource: string;
             description: string;
             /** Format: date-time */
@@ -191,7 +259,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description 告警保存失败 */
+        /** @description 服务端存储或处理失败 */
         ServerError: {
             headers: {
                 [name: string]: unknown;
@@ -226,6 +294,44 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getKubernetesEvents: {
+        parameters: {
+            query?: {
+                /** @description 不传时包含所有命名空间及集群级事件 */
+                namespace?: string;
+                /** @description involvedObject.kind，如 Pod、Node、Deployment */
+                objectType?: string;
+                objectName?: string;
+                /** @description 用于精确筛选重建前后的同名对象 */
+                objectUid?: string;
+                /** @description Kubernetes Event type 原值 */
+                eventType?: string;
+                /** @description 以查询时刻为终点的时间窗口，默认 24 小时 */
+                hours?: number;
+                /** @description 返回最新记录的上限，默认 100 条 */
+                limit?: number;
+                /** @description 上一页响应的 nextCursor；需与筛选条件保持一致 */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kubernetes Events；没有事件时 events 为空数组 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KubernetesEventsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     getMonitor: {
         parameters: {
             query?: {
@@ -282,14 +388,21 @@ export interface operations {
     };
     getAlerts: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description true 时在查询数据库前立即同步 Kubernetes Events；默认 false */
+                refresh?: boolean;
+                /** @description 每页最多返回的告警数，默认 100 */
+                limit?: number;
+                /** @description 上一页响应的 nextCursor */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description 资源告警列表 */
+            /** @description 数据库中的资源告警；refresh=true 时包含本次同步结果 */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -297,11 +410,18 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        source?: "alertmanager" | "prometheus";
+                        source: "database";
+                        /** @description 本次请求是否触发了 Kubernetes 同步 */
+                        refreshed: boolean;
+                        /** @description 本次读取到的 Kubernetes Event 数；未同步时为 null */
+                        synchronizedEvents: number | null;
                         alerts: components["schemas"]["AlertRow"][];
+                        nextCursor: string | null;
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            500: components["responses"]["ServerError"];
             502: components["responses"]["UpstreamError"];
         };
     };

@@ -5,7 +5,7 @@ import {
   type StepSelection,
 } from "../chart";
 import { queryRange, type Sample } from "./http";
-import { withLogContext } from "../logger";
+import { businessLog, errorLog, withLogContext } from "../logger";
 import type { NodeGroupDetail, NodeGroupSelection } from "./node-detail";
 
 export const POD_GROUPS = {
@@ -75,20 +75,28 @@ export type PodDetail = {
 };
 export type PodRestartEvent = { time: number; container: string };
 
-/** 从最后终止时间指标的历史采样中提取过去 24 小时的容器重启事件。
- * @param samples Pod 容器最后终止时间的 Prometheus range 样本。
+/** 根据 kube-state-metrics 重启计数器的增长识别重启事件。
+ * @param restartSamples Pod 容器累计重启次数的 Prometheus range 样本。
  * @param start 查询窗口起点，Unix 秒。
  * @param end 查询窗口终点，Unix 秒。
  * @returns 按时间升序、按容器和时间去重后的重启事件。
  */
-function extractRestartEvents(samples: Sample[], start: number, end: number): PodRestartEvent[] {
+function extractRestartEvents(restartSamples: Sample[], start: number, end: number): PodRestartEvent[] {
   const events = new Map<string, PodRestartEvent>();
-  for (const sample of samples) {
-    for (const [, rawTimestamp] of sample.values || []) {
-      const time = Math.round(Number(rawTimestamp));
-      if (!Number.isFinite(time) || time < start || time > end) continue;
-      const container = sample.metric.container || "未知容器";
-      events.set(`${container}:${time}`, { time, container });
+  for (const sample of restartSamples) {
+    let previousCount: number | undefined;
+    for (const [sampleTime, rawCount] of sample.values || []) {
+      const count = Number(rawCount);
+      if (!Number.isFinite(count)) continue;
+      if (previousCount !== undefined && count > previousCount) {
+        // Prometheus 采样点是计数器首次观察到增长的时间，可作为重启时间近似值。
+        const time = Number(sampleTime);
+        if (Number.isFinite(time) && time >= start && time <= end) {
+          const container = sample.metric.container || "未知容器";
+          events.set(`${container}:${time}`, { time, container });
+        }
+      }
+      previousCount = count;
     }
   }
   return [...events.values()].sort((left, right) => left.time - right.time);
@@ -147,6 +155,8 @@ export async function getPodDetail(
   return withLogContext(
     { feature: "Pod性能详情", namespace, pod },
     async () => {
+      const started = performance.now();
+      businessLog("pod.detail.started", { description: `Pod ${namespace}/${pod}：开始查询性能指标和重启记录` });
       const metricGroups = Object.fromEntries(
         Object.entries(POD_GROUPS).flatMap(([group, keys]) =>
           keys.map((key) => [key, group]),
@@ -155,7 +165,8 @@ export async function getPodDetail(
       const keys = Object.keys(podDetailQueries(namespace, pod)) as PodMetric[];
       const restartWindowEnd = Math.floor(Date.now() / 30) * 30;
       const restartWindowStart = restartWindowEnd - 24 * 60 * 60;
-      const restartQuery = `kube_pod_container_status_last_terminated_timestamp{namespace=${JSON.stringify(namespace)},pod=${JSON.stringify(pod)}}`;
+      const restartQueryStart = restartWindowStart - 30;
+      const selector = `namespace=${JSON.stringify(namespace)},pod=${JSON.stringify(pod)}`;
       const [results, restartSamples] = await Promise.all([
         Promise.allSettled(
           keys.map((key) => {
@@ -168,9 +179,9 @@ export async function getPodDetail(
             );
           }),
         ),
-        queryRange(restartQuery, restartWindowStart, restartWindowEnd, 30)
+        queryRange(`kube_pod_container_status_restarts_total{${selector}}`, restartQueryStart, restartWindowEnd, 30)
           .then((result) => result.result)
-          .catch(() => null),
+          .catch((error) => { errorLog("pod.restart_history.failed", error, { namespace, pod }); return null; }),
       ]);
       const metrics = {} as PodDetail["metrics"];
       const warnings: PodMetric[] = [];
@@ -179,12 +190,25 @@ export async function getPodDetail(
         metrics[key] = result.status === "fulfilled" ? result.value.result : [];
         if (result.status === "rejected") warnings.push(key);
       });
-      if (warnings.length === keys.length)
-        throw new Error("Pod 性能指标查询失败，请检查 Prometheus 连接。");
+      if (warnings.length === keys.length) {
+        const error = new Error("Pod 性能指标查询失败，请检查 Prometheus 连接。");
+        errorLog("pod.detail.failed", error, { failedMetrics: warnings, durationMs: Math.round(performance.now() - started) });
+        throw error;
+      }
+      if (warnings.length > 0 || restartSamples === null) businessLog("pod.detail.partial_failure", {
+        level: "WARN", description: `Pod ${namespace}/${pod}：部分性能指标或重启记录查询失败`,
+        failedMetrics: warnings, restartHistoryFailed: restartSamples === null,
+      });
+      businessLog("pod.detail.completed", {
+        description: `Pod ${namespace}/${pod}：性能详情查询完成，失败指标${warnings.length}项`,
+        failedMetrics: warnings, restartHistoryFailed: restartSamples === null,
+        durationMs: Math.round(performance.now() - started),
+      });
+      const restartWarning = restartSamples === null || restartSamples.length === 0;
       return {
         groups, metrics, warnings,
         restartEvents: restartSamples ? extractRestartEvents(restartSamples, restartWindowStart, restartWindowEnd) : [],
-        restartWindowStart, restartWindowEnd, restartWarning: restartSamples === null,
+        restartWindowStart, restartWindowEnd, restartWarning,
         updatedAt: new Date().toISOString(),
       };
     },

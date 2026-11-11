@@ -51,7 +51,7 @@ Node 列表以 kube-state-metrics 的 `kube_node_info` 为节点清单，按节�
 
 Pod 指标依赖 kubelet/cAdvisor；CPU 单位是 cores，内存为容器 Working Set 字节总和，网络取 eth0 接收速率。Pod Ready 来自 kube-state-metrics 的 `kube_pod_status_ready`。趋势是全部资源聚合；页面搜索和 namespace 筛选仅作用于列表。统计卡与告警不随列表筛选变化。当前瞬时指标不随历史时间范围变化，时间选择仅在 Pod 页面显示并控制 CPU 趋势。
 
-Node/Pod 监控面板仍读取 Prometheus `/api/v1/alerts`，按资源标签筛选。资源告警页在配置 Alertmanager webhook 后从 PostgreSQL 显示推送的 firing 告警；收到 resolved 后移除。未配置 webhook 时，该页继续读取 Prometheus。未实现 Alertmanager 的静默、通知和告警历史功能。部分指标缺失时显示“—”或未知，不当作零值；上游请求失败则显示错误。
+Node/Pod 监控面板仍读取 Prometheus `/api/v1/alerts`，按资源标签筛选。资源告警页统一从 PostgreSQL 读取 Alertmanager firing 告警和 Kubernetes Events；收到 resolved 后移除对应 Alertmanager 告警。页面自动刷新只查询数据库，点击“同步并刷新”会先立即从集群同步 Events。未实现 Alertmanager 的静默、通知和告警历史功能。部分指标缺失时显示“—”或未知，不当作零值；上游请求失败则显示错误。
 
 若采用 HA 副本采集，应通过 Prometheus/Thanos 查询层进行去重；多集群需增加 cluster 标签过滤，当前版本面向单一集群。生产环境请通过内网访问或在 Ingress 前配置组织认证，本项目未内置登录。
 
@@ -76,7 +76,7 @@ kubectl -n monitoring port-forward svc/operator-agent-service 3000:80
 
 ## PostgreSQL 数据库
 
-数据库连接使用 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD` 环境变量。数据库及用户需先创建；容器启动会先从 `db/*.xml` 同步 PostgreSQL 表结构，同步成功后才启动 Node 服务。应用数据库用户需要 `SELECT`、`INSERT`、`UPDATE`、`DELETE` 告警表，并有权限创建和变更表、索引及同步审计表。表结构依照 `contexat/开发/数据库/database.xsd` 编写。Docker 镜像内包含 Python 3 和 `py3-psycopg2` 驱动，脚本优先使用 psycopg v3，未安装时自动回退 psycopg2。
+数据库连接使用 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD` 环境变量。数据库及用户需先创建；容器启动会先从 `db/*.xml` 同步 PostgreSQL 表结构，同步成功后才启动 Node 服务。应用数据库用户需要统一表 `resource_alert_events` 的 `SELECT`、`INSERT`、`UPDATE`、`DELETE` 权限，并有权限创建和变更表、索引及同步审计表。表结构依照 `contexat/开发/数据库/database.xsd` 编写。Docker 镜像内包含 Python 3 和 `py3-psycopg2` 驱动，脚本优先使用 psycopg v3，未安装时自动回退 psycopg2。
 
 手动检查或在本地执行同步时：
 
@@ -89,7 +89,9 @@ python3 contexat/开发/数据库/sync_schema.py
 
 同步脚本默认读取仓库根目录 `db/`，也可以通过 `--dir` 指定目录；会记录执行历史，并用 PostgreSQL advisory lock 串行化并发实例的启动同步。重复运行不会重复创建表。数据库集成测试可在已同步的测试库中设置 `TEST_DATABASE=1` 后运行 `npm test`。原 JSON 告警文件不会自动导入 PostgreSQL；若需保留旧活动告警，请在切换前迁移数据或让 Alertmanager 重新发送 firing 告警。
 
-活动告警表单独保存告警名称、级别、对象类型、对象名称、namespace、摘要、描述、来源链接和时间，便于查询；`labels`、`annotations`、`alert_payload` 保留完整单条告警，`webhook_context` 保留该批次除 `alerts` 外的顶层字段。对象类型和名称从 `pod`、`node`、`instance`、`container` 等标签推断；Alertmanager 本身没有统一的“告警对象”字段。新增字段后需再次运行同步脚本，已有行的新增字段可能为空。
+统一表 `resource_alert_events` 以 `object_type`（发生对象类型，如 `Pod`、`Node`、`Deployment`）、`object_name`（对象名称）、`description`、`severity`、`occurred_at`、`alert_type`（告警类型）表示核心数据。`source` 区分 `alertmanager` 与 `kubernetes`，`(source, external_id)` 唯一：Alertmanager 使用 fingerprint，Kubernetes 使用 Event UID。Alertmanager 的 `alertname` 与 Kubernetes 的 `reason` 合并为 `alert_type`；Alertmanager 的 `startsAt` 与 Event 首次发生时间合并为 `occurred_at`；两种原始对象统一存入 `raw_payload`。`summary`、`labels`、`annotations`、`generator_url`、`ends_at`、`webhook_context` 和 `event_type`、`event_count`、`source_component`、`source_host`、`last_seen_at` 分别保留各来源独有信息。Alertmanager 对象类型和名称从标签推断；无法推断时 `object_type` 为空。Kubernetes Event 的 `object_type` 来自 `involvedObject.kind`，`object_api_version` 保留其 API 版本，适用于 Pod、Node 及其他对象。
+
+本次为非兼容性表设计：旧的 `alertmanager_active_alerts` 和 `kubernetes_pod_events` 不会由同步脚本自动删除或迁移；切换前需使用新数据库，或自行处理旧表及数据。新建环境只生成统一表。
 
 ## Alertmanager webhook
 
@@ -124,13 +126,13 @@ curl -i http://localhost:3000/api/webhooks/alertmanager \
 
 ## 日志
 
-默认服务名 `operator-agent-service`，日志写入 `/var/serivce/operator-agent-service/log`（按要求使用 `serivce` 拼写）。可通过 `SERVICE_NAME` 设置服务名，`LOG_DIR` 覆盖完整目录用于本地开发；运行用户必须有目录写权限。
+默认服务名 `operator-agent-service`，日志写入 `/var/service/operator-agent-service/log`（按要求使用 `serivce` 拼写）。可通过 `SERVICE_NAME` 设置服务名，`LOG_DIR` 覆盖完整目录用于本地开发；运行用户必须有目录写权限。
 
 - `business-YYYY-MM-DD.log`：监控查询开始、完成、模式和资源/告警数量。
 - `http-YYYY-MM-DD.log`：监控 API 入站请求及所有 Prometheus 出站请求。记录请求 ID、调用时间 `calledAt`、返回时间 `returnedAt`、耗时、HTTP 状态和成功/失败结果；出站结果覆盖响应体解析和 Prometheus API 业务错误。开始与完成记录通过请求 ID 关联，业务及出站调用通过 traceId 关联。记录显式查询参数（如 PromQL）及返回条数摘要，不记录认证头、URL 凭据和完整响应数据。HTTP 日志单独写入同目录下的 `http-YYYY-MM-DD.log`；首页服务端加载与 API 刷新均记录业务及出站 HTTP 日志。
 - `error-YYYY-MM-DD.log`：异常信息及完整堆栈，同时输出到标准错误控制台。
 
-日志采用“时间 + 级别 + 中文分类 + 中文功能说明 + ` | ` + JSON详细字段”格式，每日按 UTC 日期分文件；首次写入及每小时清理最后修改时间超过 14 天的日志。写入失败会输出控制台，避免中断业务。容器已创建默认目录并赋予 node 用户权限。K8s 示例使用 `emptyDir`，Pod 删除后日志会丢失；需要跨 Pod 保存时，将日志卷替换为 PVC 并确保运行用户可写。本地示例：`LOG_DIR=/tmp/operator-agent-service/log npm run dev`。
+控制台日志为 JSON，每条包含 `timestamp`、`level`、`log_type` 和 `message`，供 Kubernetes 收集；日志文件按业务、HTTP、异常分类并每日轮转，首次写入及每小时清理最后修改时间超过 14 天的文件。写入失败会输出控制台，避免中断业务。容器已创建默认目录并赋予 node 用户权限。K8s 示例使用 `emptyDir`，Pod 删除后日志会丢失；需要跨 Pod 保存时，将日志卷替换为 PVC 并确保运行用户可写。本地示例：`LOG_DIR=/tmp/operator-agent-service/log npm run dev`。
 
 ## 页面导航与本地预览
 
@@ -150,4 +152,8 @@ Node 概览将节点总数、活跃告警、健康状态并排展示，并保留
 
 ## Pod 性能详情
 
-Pod 列表“查看详情”进入 `/pods/{namespace}/{pod}`，按 namespace 和 Pod 名称精确查询。详情沿用 Node 页的双列图表、全局与面板独立时间范围、step 和自定义区间。CPU 使用率以单核为 100%；CPU Limit 和内存 Limit 比例依赖 kube-state-metrics 的 `kube_pod_container_resource_limits`。CPU 限流、内存、磁盘和网络指标依赖 kubelet/cAdvisor。磁盘延迟、等待时间和利用率还依赖 `container_fs_io_time_seconds_total` 与 `container_fs_io_time_weighted_seconds_total`；采集端缺少对应序列时图表显示空数据。网络丢包与错误数显示每秒速率。
+Pod 列表显示最近 24 小时重启次数，“查看详情”进入 `/pods/{namespace}/{pod}`，按 namespace 和 Pod 名称精确查询。详情页新增重启记录时间轴和容器/时间表；时间点来自 `kube_pod_container_status_restarts_total` 计数器首次观测到增长的 Prometheus 采样时间，因此是近似时间。重启记录仅依赖该重启计数指标。详情其余部分沿用 Node 页的双列图表、全局与面板独立时间范围、step 和自定义区间。CPU 使用率以单核为 100%；CPU Limit 和内存 Limit 比例依赖 kube-state-metrics 的 `kube_pod_container_resource_limits`。CPU 限流、内存、磁盘和网络指标依赖 kubelet/cAdvisor。磁盘延迟、等待时间和利用率还依赖 `container_fs_io_time_seconds_total` 与 `container_fs_io_time_weighted_seconds_total`；采集端缺少对应序列时图表显示空数据。网络丢包与错误数显示每秒速率。
+
+## Kubernetes Events 同步
+
+部署清单已加入 `operator-agent-service` ServiceAccount 和仅允许对 core/v1 Events 执行 `list` 的 ClusterRole/ClusterRoleBinding，供服务每 5 分钟分页采集集群内所有对象类型的 Events，包括 Pod、Node、Deployment 及集群级对象。多副本时由 PostgreSQL advisory lock 保证一个实例执行同步；页面“同步并刷新”会立即同步一次，再从数据库读取。统一表写入时 `source=kubernetes`，按 Event UID 去重。`GET /api/events` 可按命名空间、对象类型/名称/UID、Event 类型筛选并分页，接口细节见 [api/README.md](api/README.md)。

@@ -13,7 +13,7 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/scripts/sync_schema.py ./scripts/sync_schema.py
 COPY --from=build --chown=node:node /app/scripts/start.sh ./scripts/start.sh
 COPY --from=build --chown=node:node /app/db ./db
-RUN mkdir -p /var/serivce/operator-agent-service/log && chown -R node:node /var/serivce
+RUN mkdir -p /var/service/operator-agent-service/log && chown -R node:node /var/service
 ENV SERVICE_NAME=operator-agent-service
 USER node
 EXPOSE 9090
