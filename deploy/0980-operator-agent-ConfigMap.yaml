@@ -4,5 +4,5 @@ metadata:
   name: operator-agent-service-config
   namespace: monitoring
 data:
-  PROMETHEUS_URL: "http://prometheus.monitoring.svc.cluster.local:9090"
+  PROMETHEUS_URL: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   DEMO_MODE: "false"

@@ -13,6 +13,9 @@
     "postbuild": "node scripts/prepare-standalone.mjs"
   },
   "dependencies": {
+    "@copilotkit/react-core": "^1.87.0",
+    "@copilotkit/react-ui": "^1.87.0",
+    "@copilotkit/runtime": "^1.87.0",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "pg": "^8.23.1",
