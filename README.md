@@ -25,6 +25,18 @@ npm start
 
 ## 分层与 Agent 接入
 
+资源告警页集成 CopilotKit 故障分析助手，并为每条告警提供独立诊断对话。前端传入告警记录 ID；Agent 先通过 `query_alert_details` 读取该告警完整字段和当前解决状态。如果告警已恢复，则使用发生与恢复时间、对象和告警类型查询包含已恢复项的相关告警，追溯恢复前的原因。服务端通过 OpenAI 兼容的 Chat Completions 接口调用模型，配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（例如 `https://api.openai.com/v1`、服务商密钥和模型名）；API Key 仅存于服务端环境变量。Agent 另提供 `query_alerts`（按来源、类型、级别、对象、时间范围查告警，默认查全部且用数据库游标遍历所有匹配项）、`query_promql`（由模型生成 PromQL 查询 CPU、内存、磁盘、网络等即时指标或最多 24 小时的区间趋势）、`query_pod_logs`（用集群 ServiceAccount 获取指定 Pod 日志，默认回看 60 分钟、最多 300 行，可调整到 7 天和 5000 行，单次响应最多保留 128 KiB）、`query_k8s_network`（读取 Service、EndpointSlice、NetworkPolicy、Pod 与 Node 网络相关状态）和 `check_network_connectivity`（从 OperatorAgentService Pod 对指定主机执行 ICMP、TCP 或 HTTP(S) 主动探测）。后者只代表本服务 Pod 的网络视角；NetworkPolicy 规则只能作为可能影响流量的证据。
+
+命令白名单位于 [config/network-diagnostics.json](config/network-diagnostics.json)，每个探测类型配置固定的可执行文件绝对路径、参数模板和超时时间。工具仅接受 `icmp`、`tcp`、`http` 三类配置，不接受模型提供的命令或额外参数；子进程使用 `execFile` 且关闭 shell，目标 host、端口和 URL 经过校验。修改白名单后需重新构建镜像，或将配置文件挂载到容器并设置 `NETWORK_DIAGNOSTICS_CONFIG`。镜像会安装 `ping`、`nc` 和 `curl`。Kubernetes 资源查询还需部署应用 RBAC。
+
+Kubernetes 部署示例使用 ConfigMap 配置 `LLM_BASE_URL` 和 `LLM_MODEL`，API Key 放入 Secret：
+
+```bash
+kubectl -n monitoring create secret generic operator-agent-service-llm --from-literal=api-key='替换为模型服务密钥'
+```
+
+将 `deploy/0990-operator-agent-ServiceAccount.yaml` 应用后，ServiceAccount 可 list/watch Events、get/list Pods、Services、Endpoints、EndpointSlices、NetworkPolicies、Nodes，并 get `pods/log`。另有独立 ClusterRole 仅授予所有 namespace 下 `pods` 的 `delete`，供经过聊天审批的 Pod 重启使用；不授予其他 Kubernetes 写权限。Agent 发起重启后会暂停，用户必须点击批准；批准后才发送 Kubernetes `DELETE`，拒绝则取消。
+
 HTTP 接口的 OpenAPI 契约见 [api/openapi.yaml](api/openapi.yaml)，请求参数、响应结构、错误码和 webhook 示例见 [api/README.md](api/README.md)，详细调用路径见 [api/调用链.md](api/调用链.md)。修改接口时先更新 YAML，运行 `npm run api:generate` 生成 TypeScript 类型，再实现路由；`npm run typecheck` 会检查生成代码是否与 YAML 同步，并检查路由响应类型。
 
 - `src/lib/prometheus/http.ts`：原始 HTTP 适配层，一个接口对应一个函数：`query`、`queryRange`、`getAlerts`、`getRules`、`getTargets`、`getLabels`、`getLabelValues`、`getMetadata`、`getSeries`。保留 Prometheus 原始响应结构，有超时、HTTP/API 错误处理及可选 Bearer Token。

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import CopilotProvider from "@/components/copilot-provider";
 export const metadata: Metadata = {
   title: "OperatorAgent · 智能运维",
   description: "Kubernetes Node 与 Pod 的 Prometheus 监控控制台",
@@ -15,7 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body><CopilotProvider>{children}</CopilotProvider></body>
     </html>
   );
 }

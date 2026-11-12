@@ -1119,15 +1119,28 @@ footer > span:first-child {
 .alert-list table { width: 100%; table-layout: fixed; }
 .alert-list th, .alert-list td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alert-list th:nth-child(1), .alert-list td:nth-child(1) { width: 4%; }
-.alert-list th:nth-child(2), .alert-list td:nth-child(2) { width: 10%; }
-.alert-list th:nth-child(3), .alert-list td:nth-child(3) { width: 12%; }
-.alert-list th:nth-child(4), .alert-list td:nth-child(4) { width: 10%; }
-.alert-list th:nth-child(5), .alert-list td:nth-child(5) { width: 10%; }
-.alert-list th:nth-child(6), .alert-list td:nth-child(6) { width: 16%; }
-.alert-list th:nth-child(7), .alert-list td:nth-child(7) { width: 27%; }
-.alert-list th:nth-child(8), .alert-list td:nth-child(8) { width: 11%; }
+.alert-list th:nth-child(2), .alert-list td:nth-child(2) { width: 9%; }
+.alert-list th:nth-child(3), .alert-list td:nth-child(3) { width: 11%; }
+.alert-list th:nth-child(4), .alert-list td:nth-child(4) { width: 8%; }
+.alert-list th:nth-child(5), .alert-list td:nth-child(5) { width: 9%; }
+.alert-list th:nth-child(6), .alert-list td:nth-child(6) { width: 14%; }
+.alert-list th:nth-child(7), .alert-list td:nth-child(7) { width: 22%; }
+.alert-list th:nth-child(8), .alert-list td:nth-child(8) { width: 14%; }
+.alert-list th:nth-child(9), .alert-list td:nth-child(9) { width: 9%; }
 .alert-list .alert-description { line-height: normal; }
 .alert-list tbody tr { cursor: pointer; }
+.diagnostic-button { padding: 5px 9px !important; white-space: nowrap; }
+.diagnostic-modal { width: min(820px, 100%); height: min(760px, 88vh); display: flex; flex-direction: column; }
+.diagnostic-modal .alert-modal-heading { flex: none; }
+.diagnostic-chat { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.diagnostic-messages { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 12px; overflow: auto; padding: 18px 22px; }
+.diagnostic-message { max-width: 88%; padding: 11px 13px; border-radius: 10px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diagnostic-message b { display: block; margin-bottom: 4px; font-size: 11px; color: #748096; }
+.diagnostic-message.user { align-self: flex-end; background: #eaf8f5; }
+.diagnostic-message.assistant { align-self: flex-start; background: #f3f6f9; }
+.diagnostic-thinking { color: #77849a; font-size: 12px; }
+.diagnostic-input { display: flex; align-items: end; gap: 10px; padding: 14px 18px; border-top: 1px solid #edf0f4; }
+.diagnostic-input textarea { flex: 1; resize: vertical; min-height: 48px; max-height: 140px; padding: 10px 12px; border: 1px solid #dce3eb; border-radius: 8px; background: #fff; color: #26384c; font: inherit; }
 .alert-modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, .48); }
 .alert-modal { width: min(680px, 100%); max-height: min(80vh, 720px); overflow: auto; border: 1px solid #e4eaf0; border-radius: 12px; background: white; box-shadow: 0 24px 70px rgba(15, 23, 42, .24); }
 .alert-modal-heading { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid #edf0f4; }
@@ -1171,3 +1184,12 @@ footer > span:first-child {
   .pod-restart-history .panel-heading { padding: 16px; }
   .restart-table th, .restart-table td { padding: 9px 16px; }
 }
+.fault-agent { margin-bottom: 22px; }
+.fault-agent > p { margin: 0 20px 14px; color: #65708a; font-size: 13px; }
+.fault-agent [data-copilotkit] { min-height: 400px; }
+.pod-restart-approval { margin: 12px 20px 20px; padding: 16px; border: 1px solid #e4b850; border-radius: 10px; background: #fffaf0; color: #29364a; }
+.pod-restart-approvals { display: grid; gap: 10px; }
+.pod-restart-approval strong { display: block; margin-bottom: 8px; }
+.pod-restart-approval p { margin: 6px 0; font-size: 13px; line-height: 1.5; }
+.pod-restart-approval code { overflow-wrap: anywhere; }
+.pod-restart-approval > div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

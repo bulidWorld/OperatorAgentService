@@ -6,3 +6,5 @@ metadata:
 data:
   PROMETHEUS_URL: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   DEMO_MODE: "false"
+  LLM_BASE_URL: "https://api.openai.com/v1"
+  LLM_MODEL: "gpt-4o-mini"

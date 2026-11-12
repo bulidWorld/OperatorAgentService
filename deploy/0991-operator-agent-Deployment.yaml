@@ -56,6 +56,11 @@ spec:
                 secretKeyRef:
                   name: operator-agent-service-db
                   key: password
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: operator-agent-service-llm
+                  key: api-key
           volumeMounts:
             - name: logs
               mountPath: /var/service/operator-agent-service/log

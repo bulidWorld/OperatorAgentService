@@ -1,0 +1,22 @@
+{
+  "commands": {
+    "icmp": {
+      "executable": "/bin/ping",
+      "args": ["-c", "3", "-W", "2", "{host}"],
+      "timeoutMs": 8000,
+      "description": "ICMP echo probe from the OperatorAgentService pod"
+    },
+    "tcp": {
+      "executable": "/usr/bin/nc",
+      "args": ["-z", "-w", "4", "{host}", "{port}"],
+      "timeoutMs": 6000,
+      "description": "TCP port probe from the OperatorAgentService pod"
+    },
+    "http": {
+      "executable": "/usr/bin/curl",
+      "args": ["--silent", "--show-error", "--location", "--max-redirs", "2", "--proto", "=http,https", "--output", "/dev/null", "--write-out", "%{http_code}", "--connect-timeout", "3", "--max-time", "8", "{url}"],
+      "timeoutMs": 10000,
+      "description": "HTTP(S) request probe from the OperatorAgentService pod"
+    }
+  }
+}

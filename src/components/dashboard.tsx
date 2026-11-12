@@ -18,7 +18,9 @@ import {
 import type { Dashboard as Data, Scope } from "@/lib/prometheus/business";
 import { getMonitor, getNodeStatus } from "@/generated/api";
 import type { operations } from "@/generated/api.types";
-type MonitorQuery = NonNullable<operations["getMonitor"]["parameters"]["query"]>;
+type MonitorQuery = NonNullable<
+  operations["getMonitor"]["parameters"]["query"]
+>;
 /** 将字节数格式化为适合监控表格显示的 KiB、MiB 或 GiB。
  * @param n 输入字节数。
  * @returns 保留一位小数并附带单位的字符串。
@@ -60,7 +62,10 @@ export default function Dashboard({
   const [loading, setLoading] = useState(!initialData && !initialError);
   const [refresh, setRefresh] = useState(0);
   const [auto, setAuto] = useState(true);
-  const [nodeStatuses, setNodeStatuses] = useState<Record<string, boolean> | null>(null);
+  const [nodeStatuses, setNodeStatuses] = useState<Record<
+    string,
+    boolean
+  > | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -70,7 +75,14 @@ export default function Dashboard({
       timedOut = true;
       controller.abort();
     }, 20000);
-    getMonitor({ scope, minutes: minutes as MonitorQuery["minutes"], step: String(step) as MonitorQuery["step"] }, controller.signal)
+    getMonitor(
+      {
+        scope,
+        minutes: minutes as MonitorQuery["minutes"],
+        step: String(step) as MonitorQuery["step"],
+      },
+      controller.signal,
+    )
       .then((body) => {
         if (!controller.signal.aborted) setData(body);
       })
@@ -114,12 +126,24 @@ export default function Dashboard({
         pending = false;
       }
     };
-    const timer = setInterval(() => { if (!stopped) void poll(); }, 3000);
-    return () => { stopped = true; clearInterval(timer); controller?.abort(); };
+    const timer = setInterval(() => {
+      if (!stopped) void poll();
+    }, 3000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      controller?.abort();
+    };
   }, [scope, auto, data?.mode]);
   const rows = (data?.resources || []).map((row) =>
     scope === "nodes" && nodeStatuses
-      ? { ...row, ready: nodeStatuses[row.name] ?? nodeStatuses[row.name.replace(/:\d+$/, "")] ?? null }
+      ? {
+          ...row,
+          ready:
+            nodeStatuses[row.name] ??
+            nodeStatuses[row.name.replace(/:\d+$/, "")] ??
+            null,
+        }
       : row,
   );
   const filtered = rows.filter(
@@ -127,7 +151,12 @@ export default function Dashboard({
       (!namespace || r.namespace === namespace) &&
       `${r.name} ${r.namespace}`.toLowerCase().includes(search.toLowerCase()),
   );
-  if (scope === "pods") filtered.sort((a, b) => (b.cpu ?? -Infinity) - (a.cpu ?? -Infinity) || a.name.localeCompare(b.name));
+  if (scope === "pods")
+    filtered.sort(
+      (a, b) =>
+        (b.cpu ?? -Infinity) - (a.cpu ?? -Infinity) ||
+        a.name.localeCompare(b.name),
+    );
   const active = data?.alerts.filter((a) => a.state === "firing").length || 0;
   return (
     <div className="shell">
@@ -170,7 +199,10 @@ export default function Dashboard({
               {scope === "pods" && data ? rows.length : "↗"}
             </span>
           </a>
-          <a href="/alerts"><Bell size={18} />资源告警<span className="nav-count">↗</span></a>
+          <a href="/alerts">
+            <Bell size={18} />
+            资源告警<span className="nav-count">↗</span>
+          </a>
         </nav>
         <div className="side-bottom">
           <div className="source">
@@ -184,7 +216,9 @@ export default function Dashboard({
                     ? "演示数据源"
                     : data
                       ? "数据源已连接"
-                      : loading ? "正在连接…" : "暂无监控数据"}
+                      : loading
+                        ? "正在连接…"
+                        : "暂无监控数据"}
               </small>
             </div>
             <Radio size={16} />
@@ -260,7 +294,8 @@ export default function Dashboard({
                   checked={auto}
                   onChange={(e) => setAuto(e.target.checked)}
                 />
-                自动刷新 <span>{scope === "nodes" ? "状态 3s · 指标 30s" : "30s"}</span>
+                自动刷新{" "}
+                <span>{scope === "nodes" ? "状态 3s · 指标 30s" : "30s"}</span>
               </label>
             </div>
           </div>
@@ -274,7 +309,9 @@ export default function Dashboard({
               <button onClick={() => setRefresh((n) => n + 1)}>重试</button>
             </div>
           )}
-          <div className={`stats overview-stats ${scope === "nodes" ? "node-overview-stats" : ""}`}>
+          <div
+            className={`stats overview-stats ${scope === "nodes" ? "node-overview-stats" : ""}`}
+          >
             <Stat
               title={`${scope === "nodes" ? "Node" : "Pod"} 总数`}
               value={data ? String(rows.length) : "—"}
@@ -436,7 +473,9 @@ export default function Dashboard({
                       </td>
                       {scope === "pods" && (
                         <td className="restart-count">
-                          {r.restarts24h === null || r.restarts24h === undefined ? "—" : r.restarts24h}
+                          {r.restarts24h === null || r.restarts24h === undefined
+                            ? "—"
+                            : r.restarts24h}
                         </td>
                       )}
                       <td>
@@ -462,7 +501,18 @@ export default function Dashboard({
                       <td className="network-value">
                         {r.network === null ? "—" : `${bytes(r.network)}/s`}
                       </td>
-                      <td><a className="detail-link" href={scope === "nodes" ? `/nodes/${encodeURIComponent(r.name)}` : `/pods/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`}>查看详情</a></td>
+                      <td>
+                        <a
+                          className="detail-link"
+                          href={
+                            scope === "nodes"
+                              ? `/nodes/${encodeURIComponent(r.name)}`
+                              : `/pods/${encodeURIComponent(r.namespace)}/${encodeURIComponent(r.name)}`
+                          }
+                        >
+                          查看详情
+                        </a>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

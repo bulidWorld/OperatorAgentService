@@ -405,7 +405,7 @@ export type StoredAlertRow = {
  * @returns 当前页告警数组及下一页游标；没有后续记录时游标为 null。
  * @throws 游标无法解析或字段无效时抛出错误。
  */
-export type StoredAlertFilters = { source?: string; alertType?: string; severity?: string; from?: string; to?: string };
+export type StoredAlertFilters = { source?: string; alertType?: string; severity?: string; from?: string; to?: string; includeResolved?: boolean; namespace?: string; objectType?: string; objectName?: string };
 
 export async function getStoredAlerts(limit = 50, cursorToken?: string, filters: StoredAlertFilters = {}) {
   let cursor: { occurredAt: string; id: number } | undefined;
@@ -431,9 +431,13 @@ export async function getStoredAlerts(limit = 50, cursorToken?: string, filters:
       AND ($5::text IS NULL OR severity = $5)
       AND ($6::timestamptz IS NULL OR occurred_at >= $6)
       AND ($7::timestamptz IS NULL OR occurred_at <= $7)
-      AND resolution_status = 'active'
-    ORDER BY occurred_at DESC, id DESC LIMIT $8`, [cursor?.occurredAt ?? null, cursor?.id ?? null,
-    filters.source ?? null, filters.alertType ?? null, filters.severity ?? null, filters.from ?? null, filters.to ?? null, limit + 1]);
+      AND ($8::boolean OR resolution_status = 'active')
+      AND ($9::text IS NULL OR namespace = $9)
+      AND ($10::text IS NULL OR object_type = $10)
+      AND ($11::text IS NULL OR object_name = $11)
+    ORDER BY occurred_at DESC, id DESC LIMIT $12`, [cursor?.occurredAt ?? null, cursor?.id ?? null,
+    filters.source ?? null, filters.alertType ?? null, filters.severity ?? null, filters.from ?? null, filters.to ?? null,
+    filters.includeResolved ?? false, filters.namespace ?? null, filters.objectType ?? null, filters.objectName ?? null, limit + 1]);
   const hasMore = result.rows.length > limit;
   const rows = result.rows.slice(0, limit);
   const last = rows.at(-1);
@@ -451,6 +455,34 @@ export async function getStoredAlerts(limit = 50, cursorToken?: string, filters:
     activeAt: row.occurred_at.toISOString(),
   }));
   return { alerts, nextCursor };
+}
+
+/** Retrieve the diagnostic fields and current resolution state for one alert row. */
+export async function getStoredAlertDetails(id: number) {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error("告警 ID 必须为正整数");
+  const result = await getDatabase().query<{
+    id: number; source: "alertmanager" | "kubernetes"; alert_type: string | null; severity: string | null;
+    object_type: string | null; object_name: string | null; namespace: string | null; description: string | null;
+    summary: string | null; labels: Record<string, string> | null; annotations: Record<string, string> | null;
+    occurred_at: Date; ends_at: Date | null; resolution_status: "active" | "resolved"; resolution_source: string | null;
+    resolved_at: Date | null; event_type: string | null; event_count: number | null; source_component: string | null;
+    source_host: string | null; last_seen_at: Date | null; raw_payload: unknown;
+  }>(`SELECT id, source, alert_type, severity, object_type, object_name, namespace, description, summary,
+      labels, annotations, occurred_at, ends_at, resolution_status, resolution_source, resolved_at,
+      event_type, event_count, source_component, source_host, last_seen_at, raw_payload
+    FROM resource_alert_events WHERE id = $1`, [id]);
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id, source: row.source, alertType: row.alert_type, severity: row.severity,
+    objectType: row.object_type, objectName: row.object_name, namespace: row.namespace,
+    description: row.description, summary: row.summary, labels: row.labels, annotations: row.annotations,
+    occurredAt: row.occurred_at.toISOString(), endsAt: row.ends_at?.toISOString() ?? null,
+    resolutionStatus: row.resolution_status, resolutionSource: row.resolution_source,
+    resolvedAt: row.resolved_at?.toISOString() ?? null, eventType: row.event_type,
+    eventCount: row.event_count, sourceComponent: row.source_component, sourceHost: row.source_host,
+    lastSeenAt: row.last_seen_at?.toISOString() ?? null, rawPayload: row.raw_payload,
+  };
 }
 
 /** 清除指定告警，或清除符合筛选条件的全部告警。 */
