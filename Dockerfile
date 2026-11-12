@@ -1,6 +1,6 @@
 FROM node:24-alpine AS build
 WORKDIR /app
-RUN npm config set registry https://registry.npmmirror.com
+RUN npm config set registry https://mirrors.cloud.tencent.com/npm/
 COPY package*.json ./
 RUN npm ci
 COPY . .
