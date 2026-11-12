@@ -67,12 +67,16 @@ export interface paths {
         };
         /**
          * 查询资源告警
-         * @description 从统一表 resource_alert_events 查询 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
+         * @description 从统一表 resource_alert_events 查询未解决的 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
          */
         get: operations["getAlerts"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * 标记告警已解决
+         * @description 可按 ids 人工清除选中告警，或按 filters 清除所有匹配告警；均保留记录并记录解决来源。
+         */
+        delete: operations["clearAlerts"];
         options?: never;
         head?: never;
         patch?: never;
@@ -89,7 +93,7 @@ export interface paths {
         put?: never;
         /**
          * 接收 Alertmanager v4 webhook
-         * @description Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 删除对应活动告警。完整原始数据保留在 PostgreSQL。
+         * @description Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 将对应告警标记为已解决并记录解决来源为 alertmanager。完整原始数据保留在 PostgreSQL。
          */
         post: operations["receiveAlertmanagerWebhook"];
         delete?: never;
@@ -186,6 +190,7 @@ export interface components {
             updatedAt: string;
         };
         AlertRow: {
+            id: number;
             /** @enum {string} */
             source: "alertmanager" | "kubernetes";
             name: string;
@@ -391,10 +396,20 @@ export interface operations {
             query?: {
                 /** @description true 时在查询数据库前立即同步 Kubernetes Events；默认 false */
                 refresh?: boolean;
-                /** @description 每页最多返回的告警数，默认 100 */
+                /** @description 每页最多返回的告警数，默认 50 */
                 limit?: number;
                 /** @description 上一页响应的 nextCursor */
                 cursor?: string;
+                /** @description 按告警来源筛选 */
+                source?: "alertmanager" | "kubernetes";
+                /** @description 按告警类型精确筛选 */
+                alertType?: string;
+                /** @description 按告警级别精确筛选 */
+                severity?: string;
+                /** @description 告警发生时间起点（含） */
+                from?: string;
+                /** @description 告警发生时间终点（含） */
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -423,6 +438,46 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             500: components["responses"]["ServerError"];
             502: components["responses"]["UpstreamError"];
+        };
+    };
+    clearAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: number[];
+                } | {
+                    filters: {
+                        /** @enum {string} */
+                        source?: "alertmanager" | "kubernetes";
+                        alertType?: string;
+                        severity?: string;
+                        /** Format: date-time */
+                        from?: string;
+                        /** Format: date-time */
+                        to?: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description 清除结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        cleared: number;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     receiveAlertmanagerWebhook: {

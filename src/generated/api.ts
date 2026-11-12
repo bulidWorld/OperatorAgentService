@@ -67,9 +67,28 @@ export function getNodeStatus(signal?: AbortSignal): Promise<NodeStatusResponse>
  * @remarks 调用链：AlertsPage.load → getAlerts → getJson → fetch →
  * `/api/alerts` GET → PostgreSQL 统一告警表；refresh=true 时先同步 Kubernetes Events。
  */
-export function getAlerts(refresh = false, cursor?: string, signal?: AbortSignal): Promise<AlertsResponse> {
+export function getAlerts(refresh = false, cursor?: string, signal?: AbortSignal, filters: { source?: string; alertType?: string; severity?: string; from?: string; to?: string; limit?: number } = {}): Promise<AlertsResponse> {
   const params = new URLSearchParams();
   if (refresh) params.set("refresh", "true");
   if (cursor) params.set("cursor", cursor);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.alertType) params.set("alertType", filters.alertType);
+  if (filters.severity) params.set("severity", filters.severity);
+  if (filters.from) params.set("from", new Date(filters.from).toISOString());
+  if (filters.to) params.set("to", new Date(filters.to).toISOString());
+  if (filters.limit) params.set("limit", String(filters.limit));
   return getJson<AlertsResponse>(`/api/alerts${params.size ? `?${params}` : ""}`, signal);
+}
+
+export async function clearAlerts(payload: { ids: number[] } | { filters: { source?: string; alertType?: string; severity?: string; from?: string; to?: string } }): Promise<{ cleared: number }> {
+  const filters = "filters" in payload ? payload.filters : undefined;
+  const body = filters ? { filters: {
+    ...filters,
+    ...(filters.from ? { from: new Date(filters.from).toISOString() } : {}),
+    ...(filters.to ? { to: new Date(filters.to).toISOString() } : {}),
+  } } : payload;
+  const response = await fetch("/api/alerts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const result = await response.json() as { cleared?: number; error?: string };
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return { cleared: result.cleared ?? 0 };
 }

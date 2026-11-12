@@ -37,7 +37,9 @@ Webhook 使用 `Authorization: Bearer <ALERTMANAGER_WEBHOOK_TOKEN>` 和 `Content
 }
 ```
 
-Alertmanager 不提供统一的告警对象字段；服务从 `labels.pod`、`labels.node`、`labels.instance` 等标签推断对象，同时保存原始标签、注释和完整 webhook 数据。`resolved` 告警会从统一表删除；该接口不提供 Alertmanager 历史告警查询。
+Alertmanager 不提供统一的告警对象字段；服务从 `labels.pod`、`labels.node`、`labels.instance` 等标签推断对象，同时保存原始标签、注释和完整 webhook 数据。`resolved` 告警保留在统一表，并标记 `resolution_status=resolved`、`resolution_source=alertmanager`；当前活动告警查询会隐藏已解决记录。
+
+告警页面的人工清除同样保留记录，`resolution_source=manual`；Kubernetes Event 超过保留时间后自动清理会记录为 `automatic`。三种解决来源可通过 `resolution_source` 区分。
 
 ## Kubernetes Events
 

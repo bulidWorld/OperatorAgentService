@@ -136,7 +136,7 @@ export default function Dashboard({
           <span className="brand-icon">
             <Layers3 size={23} />
           </span>
-          KubeScope<span className="brand-dot">•</span>
+          智能运维<span className="brand-dot">•</span>
         </a>
         <div className="workspace">
           <span className="workspace-icon">K</span>
@@ -193,7 +193,7 @@ export default function Dashboard({
             <span className="avatar">OP</span>
             <div>
               <b>运维工作空间</b>
-              <small>KubeScope / v1.0</small>
+              <small>OperatorAgent / v1.0</small>
             </div>
           </div>
         </div>

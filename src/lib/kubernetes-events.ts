@@ -255,7 +255,9 @@ export async function syncKubernetesEvents(waitForLock = false): Promise<number 
         eventsRead += events.length;
         eventsUpserted += await upsertPage(events);
       });
-      const deleted = await client.query("DELETE FROM resource_alert_events WHERE source = 'kubernetes' AND last_seen_at < now() - interval '30 days'");
+      const deleted = await client.query(`UPDATE resource_alert_events SET resolution_status = 'resolved',
+        resolution_source = 'automatic', resolved_at = now(), updated_at = now()
+        WHERE source = 'kubernetes' AND resolution_status = 'active' AND last_seen_at < now() - interval '30 days'`);
       const durationMs = Math.round(performance.now() - started);
       businessLog("kubernetes.events.sync.completed", { syncId, traceId: syncId, trigger, calledAt,
         returnedAt: new Date().toISOString(), durationMs, lockWaitMs: Math.round(performance.now() - lockWaitStarted),
@@ -387,6 +389,7 @@ export async function getKubernetesEvents(filters: KubernetesEventFilters) {
 }
 
 export type StoredAlertRow = {
+  id: number;
   source: "alertmanager" | "kubernetes";
   name: string;
   severity: string;
@@ -402,7 +405,9 @@ export type StoredAlertRow = {
  * @returns 当前页告警数组及下一页游标；没有后续记录时游标为 null。
  * @throws 游标无法解析或字段无效时抛出错误。
  */
-export async function getStoredAlerts(limit = 100, cursorToken?: string) {
+export type StoredAlertFilters = { source?: string; alertType?: string; severity?: string; from?: string; to?: string };
+
+export async function getStoredAlerts(limit = 50, cursorToken?: string, filters: StoredAlertFilters = {}) {
   let cursor: { occurredAt: string; id: number } | undefined;
   if (cursorToken) {
     try {
@@ -420,8 +425,15 @@ export async function getStoredAlerts(limit = 100, cursorToken?: string) {
     description: string | null; occurred_at: Date;
   }>(`SELECT id, source, alert_type, severity, object_type, object_name, namespace, description, occurred_at
     FROM resource_alert_events
-    WHERE $1::timestamptz IS NULL OR occurred_at < $1 OR (occurred_at = $1 AND id < $2)
-    ORDER BY occurred_at DESC, id DESC LIMIT $3`, [cursor?.occurredAt ?? null, cursor?.id ?? null, limit + 1]);
+    WHERE ($1::timestamptz IS NULL OR occurred_at < $1 OR (occurred_at = $1 AND id < $2))
+      AND ($3::text IS NULL OR source = $3)
+      AND ($4::text IS NULL OR alert_type = $4)
+      AND ($5::text IS NULL OR severity = $5)
+      AND ($6::timestamptz IS NULL OR occurred_at >= $6)
+      AND ($7::timestamptz IS NULL OR occurred_at <= $7)
+      AND resolution_status = 'active'
+    ORDER BY occurred_at DESC, id DESC LIMIT $8`, [cursor?.occurredAt ?? null, cursor?.id ?? null,
+    filters.source ?? null, filters.alertType ?? null, filters.severity ?? null, filters.from ?? null, filters.to ?? null, limit + 1]);
   const hasMore = result.rows.length > limit;
   const rows = result.rows.slice(0, limit);
   const last = rows.at(-1);
@@ -429,6 +441,7 @@ export async function getStoredAlerts(limit = 100, cursorToken?: string) {
     occurredAt: last.occurred_at.toISOString(), id: last.id,
   })).toString("base64url") : null;
   const alerts = rows.map((row): StoredAlertRow => ({
+    id: row.id,
     source: row.source,
     name: row.alert_type || "Event",
     severity: row.severity || "—",
@@ -438,4 +451,24 @@ export async function getStoredAlerts(limit = 100, cursorToken?: string) {
     activeAt: row.occurred_at.toISOString(),
   }));
   return { alerts, nextCursor };
+}
+
+/** 清除指定告警，或清除符合筛选条件的全部告警。 */
+export async function clearStoredAlerts(ids?: number[], filters: StoredAlertFilters = {}) {
+  if (ids) {
+    const result = await getDatabase().query(`UPDATE resource_alert_events SET resolution_status = 'resolved',
+      resolution_source = 'manual', resolved_at = now(), updated_at = now()
+      WHERE id = ANY($1::integer[]) AND resolution_status = 'active'`, [ids]);
+    return result.rowCount ?? 0;
+  }
+  const result = await getDatabase().query(`UPDATE resource_alert_events SET resolution_status = 'resolved',
+    resolution_source = 'manual', resolved_at = now(), updated_at = now()
+    WHERE ($1::text IS NULL OR source = $1)
+      AND ($2::text IS NULL OR alert_type = $2)
+      AND ($3::text IS NULL OR severity = $3)
+      AND ($4::timestamptz IS NULL OR occurred_at >= $4)
+      AND ($5::timestamptz IS NULL OR occurred_at <= $5)
+      AND resolution_status = 'active'`,
+  [filters.source ?? null, filters.alertType ?? null, filters.severity ?? null, filters.from ?? null, filters.to ?? null]);
+  return result.rowCount ?? 0;
 }

@@ -28,6 +28,9 @@
         <column name="last_seen_at" type="timestamptz" comment="Kubernetes Event 最近一次发生时间" />
         <column name="raw_payload" type="jsonb" nullable="false" comment="完整 Alertmanager 单条告警或 Kubernetes core/v1 Event" />
         <column name="updated_at" type="timestamptz" nullable="false" default="now()" comment="本服务最近一次接收或同步时间" />
+        <column name="resolution_status" type="text" nullable="false" default="active" comment="告警解决状态：active 或 resolved" />
+        <column name="resolution_source" type="text" comment="解决来源：alertmanager、automatic 或 manual" />
+        <column name="resolved_at" type="timestamptz" comment="标记解决的时间" />
       </columns>
       <constraints>
         <primary-key name="pk_resource_alert_events" columns="id" />
@@ -56,4 +59,9 @@
       </indexes>
     </table>
   </tables>
+  <statements>
+    <statement id="resource-alert-resolution-status"><sql>ALTER TABLE resource_alert_events ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'active'</sql></statement>
+    <statement id="resource-alert-resolution-source"><sql>ALTER TABLE resource_alert_events ADD COLUMN IF NOT EXISTS resolution_source text</sql></statement>
+    <statement id="resource-alert-resolved-at"><sql>ALTER TABLE resource_alert_events ADD COLUMN IF NOT EXISTS resolved_at timestamptz</sql></statement>
+  </statements>
 </database>

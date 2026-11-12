@@ -94,7 +94,7 @@ export async function getPushedAlerts(): Promise<StoredAlert[]> {
     raw_payload: Record<string, unknown>; webhook_context: Record<string, unknown> | null;
   }>(`SELECT external_id AS fingerprint, labels, annotations, occurred_at, ends_at, updated_at,
     generator_url, object_type, object_name, namespace, raw_payload, webhook_context
-    FROM resource_alert_events WHERE source = 'alertmanager' ORDER BY updated_at DESC, id DESC`);
+    FROM resource_alert_events WHERE source = 'alertmanager' AND resolution_status = 'active' ORDER BY updated_at DESC, id DESC`);
   return result.rows.map((row) => ({
     fingerprint: row.fingerprint, status: "firing", labels: row.labels,
     annotations: row.annotations, startsAt: row.occurred_at.toISOString(),
@@ -119,7 +119,9 @@ export async function applyWebhook(alerts: WebhookAlert[]): Promise<number> {
     await client.query("SELECT pg_advisory_xact_lock(487391, 1)");
     for (const alert of alerts) {
       if (alert.status === "resolved") {
-        await client.query("DELETE FROM resource_alert_events WHERE source = 'alertmanager' AND external_id = $1", [alert.fingerprint]);
+        await client.query(`UPDATE resource_alert_events SET resolution_status = 'resolved',
+          resolution_source = 'alertmanager', resolved_at = now(), updated_at = now()
+          WHERE source = 'alertmanager' AND external_id = $1`, [alert.fingerprint]);
       } else {
         const resource = alertResource(alert.labels);
         await client.query(`INSERT INTO resource_alert_events
@@ -137,6 +139,7 @@ export async function applyWebhook(alerts: WebhookAlert[]): Promise<number> {
             labels = EXCLUDED.labels, annotations = EXCLUDED.annotations,
             generator_url = EXCLUDED.generator_url, ends_at = EXCLUDED.ends_at,
             webhook_context = EXCLUDED.webhook_context, raw_payload = EXCLUDED.raw_payload,
+            resolution_status = 'active', resolution_source = NULL, resolved_at = NULL,
             updated_at = EXCLUDED.updated_at`, [
           alert.fingerprint, resource.type, resource.name, resource.namespace,
           alert.annotations.description ?? alert.annotations.summary ?? null,
@@ -147,7 +150,7 @@ export async function applyWebhook(alerts: WebhookAlert[]): Promise<number> {
         ]);
       }
     }
-    const count = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM resource_alert_events WHERE source = 'alertmanager'");
+    const count = await client.query<{ count: string }>("SELECT count(*)::text AS count FROM resource_alert_events WHERE source = 'alertmanager' AND resolution_status = 'active'");
     const activeCount = Number(count.rows[0].count);
     if (activeCount > 10000) throw new Error("活动告警超过 10000 条");
     await client.query("COMMIT");

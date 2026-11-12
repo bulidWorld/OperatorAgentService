@@ -102,7 +102,7 @@ paths:
     get:
       operationId: getAlerts
       summary: 查询资源告警
-      description: 从统一表 resource_alert_events 查询 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
+      description: 从统一表 resource_alert_events 查询未解决的 Alertmanager 告警和 Kubernetes Events。refresh=true 时先立即从 Kubernetes 集群同步事件，再返回数据库结果。
       parameters:
         - name: refresh
           in: query
@@ -110,12 +110,32 @@ paths:
           schema: { type: boolean, default: false }
         - name: limit
           in: query
-          description: 每页最多返回的告警数，默认 100
+          description: 每页最多返回的告警数，默认 50
           schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
         - name: cursor
           in: query
           description: 上一页响应的 nextCursor
           schema: { type: string, minLength: 1 }
+        - name: source
+          in: query
+          description: 按告警来源筛选
+          schema: { type: string, enum: [alertmanager, kubernetes] }
+        - name: alertType
+          in: query
+          description: 按告警类型精确筛选
+          schema: { type: string }
+        - name: severity
+          in: query
+          description: 按告警级别精确筛选
+          schema: { type: string }
+        - name: from
+          in: query
+          description: 告警发生时间起点（含）
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: 告警发生时间终点（含）
+          schema: { type: string, format: date-time }
       responses:
         '200':
           description: 数据库中的资源告警；refresh=true 时包含本次同步结果
@@ -135,11 +155,47 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '500': { $ref: '#/components/responses/ServerError' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+    delete:
+      operationId: clearAlerts
+      summary: 标记告警已解决
+      description: 可按 ids 人工清除选中告警，或按 filters 清除所有匹配告警；均保留记录并记录解决来源。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids]
+                  properties:
+                    ids: { type: array, minItems: 1, items: { type: integer, minimum: 1 } }
+                - type: object
+                  required: [filters]
+                  properties:
+                    filters:
+                      type: object
+                      properties:
+                        source: { type: string, enum: [alertmanager, kubernetes] }
+                        alertType: { type: string }
+                        severity: { type: string }
+                        from: { type: string, format: date-time }
+                        to: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 清除结果
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared]
+                properties:
+                  cleared: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
   /api/webhooks/alertmanager:
     post:
       operationId: receiveAlertmanagerWebhook
       summary: 接收 Alertmanager v4 webhook
-      description: Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 删除对应活动告警。完整原始数据保留在 PostgreSQL。
+      description: Bearer token 来自 ALERTMANAGER_WEBHOOK_TOKEN。请求体上限 1 MiB，每批最多 1000 条告警；firing 按 (source=alertmanager, external_id=fingerprint) 更新统一表，resolved 将对应告警标记为已解决并记录解决来源为 alertmanager。完整原始数据保留在 PostgreSQL。
       security:
         - alertmanagerBearer: []
       requestBody:
@@ -282,8 +338,9 @@ components:
         updatedAt: { type: string, format: date-time }
     AlertRow:
       type: object
-      required: [source, name, severity, objectType, resource, description, activeAt]
+      required: [id, source, name, severity, objectType, resource, description, activeAt]
       properties:
+        id: { type: integer }
         source: { type: string, enum: [alertmanager, kubernetes] }
         name: { type: string }
         severity: { type: string }
