@@ -25,6 +25,8 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
     void agent.runAgent();
   }, [agent, alertId, isReady]);
 
+  if (!isReady) return null;
+
   return (
     <CopilotChat
       agentId={agentId}

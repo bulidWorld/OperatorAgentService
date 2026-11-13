@@ -37,7 +37,7 @@ async function handleGet(request: NextRequest) {
       status = 400;
       return NextResponse.json({ error: "无效的查询参数" } satisfies ErrorResponse, { status });
     }
-    const dashboard = await getDashboard(scope as "nodes" | "pods", minutes, step);
+    const dashboard = await getDashboard(scope as "nodes" | "pods", minutes, step, request.nextUrl.searchParams.get("refresh") === "true");
     return NextResponse.json(dashboard satisfies MonitorResponse);
   } catch (error) {
     status = 502;

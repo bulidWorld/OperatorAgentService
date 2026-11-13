@@ -41,11 +41,12 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
  * @remarks 调用链：Dashboard.useEffect → getMonitor → getJson → fetch →
  * `/api/monitor` GET → getDashboard → Prometheus HTTP API → 页面状态更新。
  */
-export function getMonitor(query: MonitorQuery, signal?: AbortSignal): Promise<MonitorResponse> {
+export function getMonitor(query: MonitorQuery, signal?: AbortSignal, refresh = false): Promise<MonitorResponse> {
   const params = new URLSearchParams();
   if (query.scope) params.set("scope", query.scope);
   if (query.minutes !== undefined) params.set("minutes", String(query.minutes));
   if (query.step) params.set("step", query.step);
+  if (refresh) params.set("refresh", "true");
   return getJson<MonitorResponse>(`/api/monitor?${params}`, signal);
 }
 
@@ -56,8 +57,8 @@ export function getMonitor(query: MonitorQuery, signal?: AbortSignal): Promise<M
  * @remarks 调用链：Dashboard 节点轮询 → getNodeStatus → getJson → fetch →
  * `/api/node-status` GET → 可用性与节点清单查询 → 页面 nodeStatuses 状态。
  */
-export function getNodeStatus(signal?: AbortSignal): Promise<NodeStatusResponse> {
-  return getJson<NodeStatusResponse>("/api/node-status", signal);
+export function getNodeStatus(signal?: AbortSignal, scope: "nodes" | "pods" = "nodes"): Promise<NodeStatusResponse> {
+  return getJson<NodeStatusResponse>(`/api/node-status?scope=${scope}`, signal);
 }
 
 /** 请求当前资源告警列表。

@@ -82,6 +82,7 @@ export default function Dashboard({
         step: String(step) as MonitorQuery["step"],
       },
       controller.signal,
+      refresh > 0,
     )
       .then((body) => {
         if (!controller.signal.aborted) setData(body);
@@ -101,12 +102,7 @@ export default function Dashboard({
     };
   }, [scope, minutes, step, refresh]);
   useEffect(() => {
-    if (!auto) return;
-    const timer = setInterval(() => setRefresh((n) => n + 1), 30000);
-    return () => clearInterval(timer);
-  }, [auto]);
-  useEffect(() => {
-    if (scope !== "nodes" || !auto || data?.mode === "demo") return;
+    if (!auto || data?.mode === "demo") return;
     let stopped = false;
     let pending = false;
     let controller: AbortController | null = null;
@@ -118,8 +114,11 @@ export default function Dashboard({
       pending = true;
       controller = new AbortController();
       try {
-        const body = await getNodeStatus(controller.signal);
-        if (!stopped && body.statuses) setNodeStatuses(body.statuses);
+        const body = await getNodeStatus(controller.signal, scope);
+        if (!stopped && body.statuses) {
+          setNodeStatuses(body.statuses);
+          setData((current) => current ? { ...current, resources: body.resources, updatedAt: new Date().toISOString() } : current);
+        }
       } catch {
         // Keep the last known status until the next successful poll.
       } finally {
@@ -128,7 +127,7 @@ export default function Dashboard({
     };
     const timer = setInterval(() => {
       if (!stopped) void poll();
-    }, 3000);
+    }, 5000);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -136,11 +135,11 @@ export default function Dashboard({
     };
   }, [scope, auto, data?.mode]);
   const rows = (data?.resources || []).map((row) =>
-    scope === "nodes" && nodeStatuses
+    nodeStatuses
       ? {
           ...row,
           ready:
-            nodeStatuses[row.name] ??
+            nodeStatuses[scope === "pods" ? JSON.stringify([row.namespace, row.name]) : row.name] ??
             nodeStatuses[row.name.replace(/:\d+$/, "")] ??
             null,
         }

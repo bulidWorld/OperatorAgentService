@@ -48,7 +48,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 查询节点可用状态 */
+        /** 查询 Node 或 Pod 的实时资源指标和可用状态 */
         get: operations["getNodeStatus"];
         put?: never;
         post?: never;
@@ -368,20 +368,23 @@ export interface operations {
     };
     getNodeStatus: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: "nodes" | "pods";
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description 节点名称到可用状态的映射；演示模式返回 null */
+            /** @description 当前资源指标及可用状态；演示模式返回空资源和 null 状态 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        resources: components["schemas"]["Resource"][];
                         statuses: {
                             [key: string]: boolean;
                         } | null;

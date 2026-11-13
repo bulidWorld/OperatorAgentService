@@ -1,6 +1,6 @@
 # KubeScope
 
-Next.js App Router + React + TypeScript 实现的 Kubernetes Prometheus 监控台，包含 **Node 监控**、**Pod 监控**两个菜单。支持 CPU、内存、网络接收速率、Ready 状态、Pod CPU 历史趋势、关联告警、名称搜索、Pod 命名空间筛选、时间范围选择和 30 秒自动刷新。界面适配桌面及手机。
+Next.js App Router + React + TypeScript 实现的 Kubernetes Prometheus 监控台，包含 **Node 监控**、**Pod 监控**两个菜单。支持 CPU、内存、网络接收速率、Ready 状态、Pod CPU 历史趋势、关联告警、名称搜索、Pod 命名空间筛选、时间范围选择和每 5 秒自动刷新资源指标与状态。界面适配桌面及手机。初始监控面板在服务进程内缓存 10 分钟；实时资源指标按 5 秒缓存，供同时打开的页面共享查询结果。手动刷新会重新查询面板；告警来自统一数据库，Alertmanager 告警由 webhook 推送，Kubernetes Events 由后台同步。
 
 ## 启动
 

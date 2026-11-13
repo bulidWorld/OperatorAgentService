@@ -1,6 +1,7 @@
 import { queryStep, rateWindow, type StepSelection } from "../chart";
 import { businessLog, errorLog, withLogContext } from "../logger";
-import { query, queryRange, getAlerts, type Sample } from "./http";
+import { query, queryRange, type Sample } from "./http";
+import { getStoredAlerts } from "../kubernetes-events";
 export type Scope = "nodes" | "pods";
 export type Resource = {
   name: string;
@@ -143,7 +144,7 @@ export function namespaceFilter(namespace?: string) {
  * @returns Prometheus 告警集合。
  */
 export function getResourceAlerts() {
-  return getAlerts();
+  return getStoredAlerts(500);
 }
 /** 查询 Node 或 Pod 的 CPU 历史趋势。
  * @param scope 资源类型，nodes 表示节点，pods 表示 Pod。
@@ -212,7 +213,17 @@ export function mergeResources(scope: Scope, metrics: Sample[][]): Resource[] {
  * @returns 可直接提供给监控面板的聚合数据。
  * @throws 上游 Prometheus 查询失败时记录错误并继续向调用方抛出。
  */
-export function getDashboard(scope: Scope, minutes: number, stepSelection: StepSelection = "auto"): Promise<Dashboard> {
+const dashboardCache = new Map<string, { expires: number; value: Promise<Dashboard> }>();
+export function getDashboard(scope: Scope, minutes: number, stepSelection: StepSelection = "auto", force = false): Promise<Dashboard> {
+  const key = `${scope}:${minutes}:${stepSelection}`;
+  const cached = dashboardCache.get(key);
+  if (!force && cached && cached.expires > Date.now()) return cached.value;
+  const value = loadLoggedDashboard(scope, minutes, stepSelection);
+  dashboardCache.set(key, { expires: Date.now() + 600_000, value });
+  void value.catch(() => { if (dashboardCache.get(key)?.value === value) dashboardCache.delete(key); });
+  return value;
+}
+function loadLoggedDashboard(scope: Scope, minutes: number, stepSelection: StepSelection): Promise<Dashboard> {
   return withLogContext({ feature: scope === "nodes" ? "Node节点资源监控" : "Pod工作负载监控", scope, minutes, stepSelection }, async () => {
     const started = performance.now();
     businessLog("dashboard.query.started");
@@ -275,17 +286,13 @@ async function loadDashboard(scope: Scope, minutes: number, stepSelection: StepS
     mode: "live",
     resources,
     alerts: alerts.alerts
-      .filter((a) =>
-        scope === "pods"
-          ? !!a.labels.pod
-          : !!a.labels.instance && !a.labels.pod,
-      )
+      .filter((a) => a.objectType?.toLowerCase() === (scope === "pods" ? "pod" : "node"))
       .map((a) => ({
-        name: a.labels.alertname || "Alert",
-        severity: a.labels.severity || "info",
-        state: a.state,
-        resource: a.labels.pod || a.labels.instance || "",
-        summary: a.annotations.summary || a.annotations.description || "",
+        name: a.name,
+        severity: a.severity,
+        state: "firing",
+        resource: a.resource,
+        summary: a.description,
       })),
     trendStep: queryStep(minutes, stepSelection),
     trendWindow: rateWindow(queryStep(minutes, stepSelection)),

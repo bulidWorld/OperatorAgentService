@@ -83,16 +83,23 @@ paths:
   /api/node-status:
     get:
       operationId: getNodeStatus
-      summary: 查询节点可用状态
+      summary: 查询 Node 或 Pod 的实时资源指标和可用状态
+      parameters:
+        - in: query
+          name: scope
+          schema: { type: string, enum: [nodes, pods], default: nodes }
       responses:
         '200':
-          description: 节点名称到可用状态的映射；演示模式返回 null
+          description: 当前资源指标及可用状态；演示模式返回空资源和 null 状态
           content:
             application/json:
               schema:
                 type: object
-                required: [statuses]
+                required: [statuses, resources]
                 properties:
+                  resources:
+                    type: array
+                    items: { $ref: '#/components/schemas/Resource' }
                   statuses:
                     nullable: true
                     type: object
