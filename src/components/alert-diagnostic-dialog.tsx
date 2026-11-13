@@ -105,12 +105,12 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
 
   return (
     <div className="diagnostic-chat-content">
+      <ToolActivity messages={chatMessages} isRunning={agent.isRunning} />
       <CopilotChat
         agentId={agentId}
         threadId={threadId}
         labels={{ chatInputPlaceholder: "补充信息或继续追问…" }}
       />
-      <ToolActivity messages={chatMessages} isRunning={agent.isRunning} />
     </div>
   );
 }
