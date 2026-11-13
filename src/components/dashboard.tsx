@@ -542,7 +542,7 @@ export default function Dashboard({
             </span>
             <span>
               {data
-                ? `更新于 ${new Date(data.updatedAt).toLocaleTimeString("zh-CN")}`
+                ? `更新于 ${new Date(data.updatedAt).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai" })}`
                 : "等待监控数据"}
             </span>
           </footer>
