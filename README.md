@@ -23,19 +23,21 @@ npm run build
 npm start
 ```
 
-## 分层与 Agent 接入
+## MCP 与远端 Agent 接入
 
-资源告警页集成 CopilotKit 故障分析助手，并为每条告警提供独立诊断对话。前端传入告警记录 ID；Agent 先通过 `query_alert_details` 读取该告警完整字段和当前解决状态。如果告警已恢复，则使用发生与恢复时间、对象和告警类型查询包含已恢复项的相关告警，追溯恢复前的原因。服务端通过 OpenAI 兼容的 Chat Completions 接口调用模型，配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（例如 `https://api.openai.com/v1`、服务商密钥和模型名）；API Key 仅存于服务端环境变量。Agent 另提供 `query_alerts`（按来源、类型、级别、对象、时间范围查告警，默认查全部且用数据库游标遍历所有匹配项）、`query_promql`（由模型生成 PromQL 查询 CPU、内存、磁盘、网络等即时指标或最多 24 小时的区间趋势）、`query_pod_logs`（用集群 ServiceAccount 获取指定 Pod 日志，默认回看 60 分钟、最多 300 行，可调整到 7 天和 5000 行，单次响应最多保留 128 KiB）、`query_k8s_network`（读取 Service、EndpointSlice、NetworkPolicy、Pod 与 Node 网络相关状态）和 `check_network_connectivity`（从 OperatorAgentService Pod 对指定主机执行 ICMP、TCP 或 HTTP(S) 主动探测）。后者只代表本服务 Pod 的网络视角；NetworkPolicy 规则只能作为可能影响流量的证据。
+资源告警页集成 CopilotKit 故障分析助手，并为每条告警提供独立诊断对话。前端请求由本服务的 `/api/copilotkit` 转发给远端 AG-UI endpoint；`LANGGRAPH_DEPLOYMENT_URL` 配置该兼容 AG-UI 协议的 HTTP 地址。远端 endpoint 负责连接 `k8s_ops_agent` graph。本服务不运行模型或编排 Agent，只通过 `/api/mcp` 提供 Kubernetes、告警、监控和网络探测工具。工具输入输出及风险元数据见 [api/mcp.yaml](api/mcp.yaml)；工具调用和审批流程由远端 LangGraph 编排，MCP 服务执行调用者授权范围内的操作。
 
 命令白名单位于 [config/network-diagnostics.json](config/network-diagnostics.json)，每个探测类型配置固定的可执行文件绝对路径、参数模板和超时时间。工具仅接受 `icmp`、`tcp`、`http` 三类配置，不接受模型提供的命令或额外参数；子进程使用 `execFile` 且关闭 shell，目标 host、端口和 URL 经过校验。修改白名单后需重新构建镜像，或将配置文件挂载到容器并设置 `NETWORK_DIAGNOSTICS_CONFIG`。镜像会安装 `ping`、`nc` 和 `curl`。Kubernetes 资源查询还需部署应用 RBAC。
 
-Kubernetes 部署示例使用 ConfigMap 配置 `LLM_BASE_URL` 和 `LLM_MODEL`，API Key 放入 Secret：
+Kubernetes 部署通过 ConfigMap 的 `LANGGRAPH_DEPLOYMENT_URL` 配置远端 AG-UI 兼容 endpoint。该地址必须接收 AG-UI HTTP 请求，graph 选择由 endpoint 负责。将 `deploy/0990-operator-agent-ServiceAccount.yaml` 应用后，ServiceAccount 可 list/watch Events、get/list Pods、Services、Endpoints、EndpointSlices、NetworkPolicies、Nodes，并 get `pods/log`。另有独立 ClusterRole 仅授予所有 namespace 下 `pods` 的 `delete`，供 MCP `restart_pod` 工具使用；不授予其他 Kubernetes 写权限。是否审批由远端 LangGraph 编排决定。
+
+MCP 入口需要配置调用者凭证，否则 `/api/mcp` 返回 503。将授权调用者的 JSON 数组写入 `mcp-callers.json`，并创建 Secret：
 
 ```bash
-kubectl -n monitoring create secret generic operator-agent-service-llm --from-literal=api-key='替换为模型服务密钥'
+kubectl -n monitoring create secret generic operator-agent-service-mcp-callers --from-file=callers-json=./mcp-callers.json
 ```
 
-将 `deploy/0990-operator-agent-ServiceAccount.yaml` 应用后，ServiceAccount 可 list/watch Events、get/list Pods、Services、Endpoints、EndpointSlices、NetworkPolicies、Nodes，并 get `pods/log`。另有独立 ClusterRole 仅授予所有 namespace 下 `pods` 的 `delete`，供经过聊天审批的 Pod 重启使用；不授予其他 Kubernetes 写权限。Agent 发起重启后会暂停，用户必须点击批准；批准后才发送 Kubernetes `DELETE`，拒绝则取消。
+每个调用者配置 token 的 SHA-256 摘要、工具 scope 和资源范围；原始 bearer token 单独安全配置在远端 LangGraph Server。不要把原始 token 放入此服务的 Secret。凭证字段格式见 [api/README.md](api/README.md)。
 
 HTTP 接口的 OpenAPI 契约见 [api/openapi.yaml](api/openapi.yaml)，请求参数、响应结构、错误码和 webhook 示例见 [api/README.md](api/README.md)，详细调用路径见 [api/调用链.md](api/调用链.md)。修改接口时先更新 YAML，运行 `npm run api:generate` 生成 TypeScript 类型，再实现路由；`npm run typecheck` 会检查生成代码是否与 YAML 同步，并检查路由响应类型。
 
@@ -55,7 +57,7 @@ const podCpu = await getPodCpuUsage("production");
 const nodeMemory = await getNodeMemoryUsage();
 ```
 
-这些函数属于服务端模块，只能从服务端 Agent 工具执行器导入，不应引入浏览器代码。目前未实现 MCP 协议或 Agent 工具注册。
+这些函数属于服务端模块，只能由服务端代码导入，不应引入浏览器代码。MCP 工具契约和 Streamable HTTP 入口见 [api/mcp.yaml](api/mcp.yaml) 与 [api/README.md](api/README.md)。
 
 ## 指标口径
 
@@ -141,10 +143,10 @@ curl -i http://localhost:3000/api/webhooks/alertmanager \
 默认服务名 `operator-agent-service`，日志写入 `/var/service/operator-agent-service/log`（按要求使用 `serivce` 拼写）。可通过 `SERVICE_NAME` 设置服务名，`LOG_DIR` 覆盖完整目录用于本地开发；运行用户必须有目录写权限。
 
 - `business-YYYY-MM-DD.log`：监控查询开始、完成、模式和资源/告警数量。
-- `http-YYYY-MM-DD.log`：监控 API 入站请求及所有 Prometheus 出站请求。记录请求 ID、调用时间 `calledAt`、返回时间 `returnedAt`、耗时、HTTP 状态和成功/失败结果；出站结果覆盖响应体解析和 Prometheus API 业务错误。开始与完成记录通过请求 ID 关联，业务及出站调用通过 traceId 关联。记录显式查询参数（如 PromQL）及返回条数摘要，不记录认证头、URL 凭据和完整响应数据。HTTP 日志单独写入同目录下的 `http-YYYY-MM-DD.log`；首页服务端加载与 API 刷新均记录业务及出站 HTTP 日志。
+- `http-YYYY-MM-DD.log`：入站请求记录为 `log_type=access`，服务发起的请求记录为 `log_type=http`。包含 Prometheus、Kubernetes API、LangGraph Server 和主动 HTTP 探测。每条记录均为 JSON，包含 `method`、`path`、`status`、`duration_ms`；请求开始时尚无响应状态，`status` 与 `duration_ms` 为 `null`，完成记录包含实际值。请求 ID 和 `trace_id` 用于关联同一调用链。日志不记录认证头或 URL 凭据。
 - `error-YYYY-MM-DD.log`：异常信息及完整堆栈，同时输出到标准错误控制台。
 
-控制台日志为 JSON，每条包含 `timestamp`、`level`、`log_type` 和 `message`，供 Kubernetes 收集；日志文件按业务、HTTP、异常分类并每日轮转，首次写入及每小时清理最后修改时间超过 14 天的文件。写入失败会输出控制台，避免中断业务。容器已创建默认目录并赋予 node 用户权限。K8s 示例使用 `emptyDir`，Pod 删除后日志会丢失；需要跨 Pod 保存时，将日志卷替换为 PVC 并确保运行用户可写。本地示例：`LOG_DIR=/tmp/operator-agent-service/log npm run dev`。
+控制台和日志文件统一使用 JSON，每条包含 `timestamp`、`level`、`log_type` 和 `message`，异常记录还包含 `exceptionInfo` 堆栈，供 Kubernetes 收集和检索。`level` 使用 `DEBUG`、`INFO`、`WARN`、`ERROR`；`log_type` 使用 `business`、`http`、`access`、`exception`。日志文件按业务、HTTP、异常分类并每日轮转，首次写入及每小时清理最后修改时间超过 14 天的文件。写入失败会输出符合相同 JSON 格式的异常日志，避免中断业务。容器已创建默认目录并赋予 node 用户权限。K8s 示例使用 `emptyDir`，Pod 删除后日志会丢失；需要跨 Pod 保存时，将日志卷替换为 PVC 并确保运行用户可写。本地示例：`LOG_DIR=/tmp/operator-agent-service/log npm run dev`。
 
 ## 页面导航与本地预览
 

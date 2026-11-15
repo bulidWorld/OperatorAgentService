@@ -21,6 +21,10 @@
 - path: 路径
 - duration_ms: 耗时
 - status: 响应状态码
+- 代码模块复用:
+···
+@src/lib/logger.ts @HttpLog 注释实现
+···
 
 ## log_type:exception 日志记录要求
 - exceptionInfo: 记录代码堆栈，便于后续定位

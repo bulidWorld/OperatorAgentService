@@ -13,16 +13,19 @@
     "postbuild": "node scripts/prepare-standalone.mjs"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.141",
+    "@ag-ui/client": "^1.0.2",
     "@copilotkit/react-core": "^1.87.0",
     "@copilotkit/react-ui": "^1.87.0",
     "@copilotkit/runtime": "^1.87.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
-    "openai": "^7.55.0",
     "pg": "^8.23.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: Approval interruption contract
+  version: 1.0.0
+  description: >-
+    Contract for approval requests emitted as AG-UI interruptions and decisions
+    returned by the reviewer. The authenticated server context supplies
+    reviewer and decided_at; clients must not submit either field.
+components:
+  schemas:
+    ApprovalRequest:
+      type: object
+      additionalProperties: false
+      required: [type, schema_version, request_id, action, title, rationale, change_plan, evidence, inputs]
+      properties:
+        type: { const: approval_request }
+        schema_version: { const: 1 }
+        request_id: { type: string, minLength: 1 }
+        action: { type: string, enum: [business_fix, restart_container] }
+        title: { type: string, minLength: 1 }
+        rationale: { type: string }
+        change_plan: { type: string }
+        evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, source, summary]
+            properties:
+              kind: { type: string, minLength: 1 }
+              source: { type: string, minLength: 1 }
+              summary: { type: string }
+              url: { type: string, format: uri, pattern: '^https?://' }
+              timestamp: { type: string, format: date-time }
+        inputs:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/ConfirmInput'
+              - $ref: '#/components/schemas/SelectInput'
+              - $ref: '#/components/schemas/TextInput'
+    InputBase:
+      type: object
+      required: [key, label, type, required]
+      properties:
+        key: { type: string, minLength: 1 }
+        label: { type: string, minLength: 1 }
+        type: { type: string }
+        required: { type: boolean }
+        placeholder: { type: string }
+    ConfirmInput:
+      allOf:
+        - $ref: '#/components/schemas/InputBase'
+        - type: object
+          properties:
+            type: { const: confirm }
+    SelectInput:
+      allOf:
+        - $ref: '#/components/schemas/InputBase'
+        - type: object
+          required: [options]
+          properties:
+            type: { enum: [single_select, multi_select] }
+            options:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                additionalProperties: false
+                required: [value, label]
+                properties:
+                  value: { type: string, minLength: 1 }
+                  label: { type: string, minLength: 1 }
+    TextInput:
+      allOf:
+        - $ref: '#/components/schemas/InputBase'
+        - type: object
+          properties:
+            type: { const: text }
+            max_length: { type: integer, minimum: 0 }
+    ApprovalDecision:
+      type: object
+      additionalProperties: false
+      required: [request_id, status, answers]
+      properties:
+        request_id: { type: string, minLength: 1 }
+        status: { type: string, enum: [approved, rejected] }
+        answers: { type: object, additionalProperties: true }
+        comment: { type: string }

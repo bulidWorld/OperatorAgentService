@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { businessLog, cleanupLogs, errorLog, withLogContext } from "./logger";
+import { businessLog, cleanupLogs, errorLog, withAccessLog, withLogContext } from "./logger";
 import { getAlerts } from "./prometheus/http";
 
 test("separate logs, stack traces, retention and outbound request results", async () => {
   const directory = mkdtempSync(join(tmpdir(), "kube-logs-"));
-  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, fetch: globalThis.fetch, error: console.error };
+  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, fetch: globalThis.fetch, error: console.error, info: console.log };
   process.env.LOG_DIR = directory;
   process.env.PROMETHEUS_URL = "http://localhost:9090";
-  const consoleRecords: unknown[][] = [];
-  console.error = (...args) => { consoleRecords.push(args); };
+  const consoleRecords: string[] = [];
+  console.error = (...args) => { consoleRecords.push(String(args[0])); };
+  console.log = (...args) => { consoleRecords.push(String(args[0])); };
   try {
     businessLog("test.business");
     errorLog("test.error", new Error("failure with stack"));
@@ -24,26 +25,53 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     await assert.rejects(getAlerts(), /connection failed/);
     globalThis.fetch = async () => new Response(JSON.stringify({ status: "error", error: "bad query" }));
     await assert.rejects(getAlerts(), /bad query/);
+    await withAccessLog(
+      { method: "POST", url: "http://localhost/api/test?token=hidden" },
+      "test.access",
+      async () => ({ status: 204 }),
+    );
     const records = (category: string) => readdirSync(directory)
       .filter(name => name.startsWith(`${category}-`))
-      .flatMap(name => readFileSync(join(directory, name), "utf8").trim().split("\n").map(line => JSON.parse(line.slice(line.indexOf(" | ") + 3))));
+      .flatMap(name => readFileSync(join(directory, name), "utf8").trim().split("\n").map(line => JSON.parse(line)));
     assert.equal(records("business")[0].event, "test.business");
-    assert.match(records("error")[0].stack, /Error: failure with stack\n\s+at/);
-    assert.equal(consoleRecords.length, 4);
+    assert.match(records("error")[0].exceptionInfo, /Error: failure with stack\n\s+at/);
+    assert.ok(records("error").every(record => record.log_type === "exception"));
+    assert.ok(consoleRecords.length > 4);
+    for (const raw of consoleRecords) {
+      const record = JSON.parse(raw);
+      assert.ok(record.timestamp);
+      assert.ok(["DEBUG", "INFO", "WARN", "ERROR"].includes(record.level));
+      assert.ok(["business", "http", "access", "exception"].includes(record.log_type));
+    }
     const completed = records("http").filter(record => record.event === "request.completed");
-    assert.equal(completed.length, 4);
-    assert.equal(completed[0].traceId, "test-trace");
-    assert.match(completed[0].description, /Node节点资源监控：HTTP请求成功/);
+    const started = records("http").filter(record => record.event === "request.started");
+    assert.ok(started.length > 0);
+    assert.ok(started.every(record => record.method && record.path && record.status === null && record.duration_ms === null));
+    assert.equal(completed.length, 5);
+    assert.equal(completed[0].trace_id, "test-trace");
+    assert.match(completed[0].message, /Node节点资源监控：HTTP请求成功/);
     assert.equal(completed[0].operation, "Prometheus告警查询");
     assert.equal(completed[0].resultSummary.itemCount, 0);
-    assert.match(completed[2].description, /connection failed/);
+    assert.match(completed[2].message, /connection failed/);
     const httpText = readFileSync(join(directory, readdirSync(directory).find(name => name.startsWith("http-"))!), "utf8");
-    assert.match(httpText, /\[HTTP请求日志\] Node节点资源监控：发起HTTP请求/);
-    assert.deepEqual(completed.map(record => record.result), ["success", "error", "error", "error"]);
+    assert.doesNotMatch(httpText, /\[HTTP请求日志\]/);
+    assert.deepEqual(completed.map(record => record.result), ["success", "error", "error", "error", "success"]);
     assert.equal(completed[1].status, 503);
+    assert.equal(completed[1].level, "ERROR");
+    assert.ok(completed.every(record => record.path && record.method && record.status !== undefined && record.duration_ms >= 0));
+    assert.equal(completed[4].log_type, "access");
+    assert.equal(completed[4].path, "/api/test");
+    assert.equal(completed[4].status, 204);
+    assert.equal(completed[4].duration_ms >= 0, true);
+    for (const name of readdirSync(directory).filter(name => name.endsWith(".log"))) {
+      for (const line of readFileSync(join(directory, name), "utf8").trim().split("\n")) {
+        const record = JSON.parse(line);
+        assert.ok(record.timestamp && record.level && record.log_type);
+      }
+    }
     for (const record of completed) {
       assert.ok(Date.parse(record.returnedAt) >= Date.parse(record.calledAt));
-      assert.ok(record.durationMs >= 0);
+      assert.ok(record.duration_ms >= 0);
     }
     const old = join(directory, "business-2020-01-01.log");
     const unrelated = join(directory, "keep.txt");
@@ -60,6 +88,7 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     if (previous.url === undefined) delete process.env.PROMETHEUS_URL; else process.env.PROMETHEUS_URL = previous.url;
     globalThis.fetch = previous.fetch;
     console.error = previous.error;
+    console.log = previous.info;
     rmSync(directory, { recursive: true, force: true });
   }
 });

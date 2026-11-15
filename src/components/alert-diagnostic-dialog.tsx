@@ -109,6 +109,7 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
       <CopilotChat
         agentId={agentId}
         threadId={threadId}
+        chatView={{ className: "diagnostic-chat-view" }}
         labels={{ chatInputPlaceholder: "补充信息或继续追问…" }}
       />
     </div>

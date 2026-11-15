@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
+import { beginHttpLog } from "./logger";
 
 const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
@@ -30,9 +31,17 @@ export async function getPodLogs(input: {
   const query = new URLSearchParams({ timestamps: "true", tailLines: String(tailLines), sinceSeconds: String(sinceMinutes * 60) });
   if (container) query.set("container", container);
   const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}/log?${query}`;
+  const finishLog = beginHttpLog({
+    method: "GET",
+    path: `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}/log`,
+    operation: "Kubernetes Pod 日志查询",
+    namespace,
+    pod,
+  });
   return new Promise<{ namespace: string; pod: string; container?: string; logs: string; truncated: boolean }>((resolve, reject) => {
     const req = httpsRequest({ hostname, port: Number(port), path, method: "GET", ca,
       headers: { Authorization: `Bearer ${token.trim()}`, Accept: "text/plain" } }, response => {
+      const status = response.statusCode ?? 500;
       const chunks: Buffer[] = [];
       let size = 0;
       response.on("data", (chunk: Buffer) => {
@@ -40,14 +49,25 @@ export async function getPodLogs(input: {
         if (size <= 128 * 1024) chunks.push(chunk);
       });
       response.on("end", () => {
-        const status = response.statusCode ?? 500;
         const body = Buffer.concat(chunks).toString("utf8");
-        if (status < 200 || status >= 300) return reject(new Error(`Kubernetes 日志 API 返回 HTTP ${status}: ${body.slice(0, 500)}`));
+        if (status < 200 || status >= 300) {
+          const error = new Error(`Kubernetes 日志 API 返回 HTTP ${status}: ${body.slice(0, 500)}`);
+          finishLog(status, error);
+          return reject(error);
+        }
+        finishLog(status);
         resolve({ namespace, pod, container, logs: body, truncated: size > 128 * 1024 });
+      });
+      response.on("error", error => {
+        finishLog(status, error);
+        reject(error);
       });
     });
     req.setTimeout(20000, () => req.destroy(new Error("Kubernetes 日志请求超时")));
-    req.on("error", reject);
+    req.on("error", error => {
+      finishLog(undefined, error);
+      reject(error);
+    });
     req.end();
   });
 }

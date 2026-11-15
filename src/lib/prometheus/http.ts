@@ -48,7 +48,7 @@ async function request<T>(
     labels: "Prometheus标签查询", metadata: "Prometheus指标元数据查询", series: "Prometheus时间序列查询",
   };
   const context = {
-    requestId, direction: "outbound", method: "GET", url: endpoint.toString(), calledAt,
+    requestId, direction: "outbound", method: "GET", path: endpoint.pathname, url: endpoint.toString(), calledAt,
     operation: operations[path] || "Prometheus标签值查询", requestParams: params,
   };
   httpLog("request.started", context);
@@ -86,7 +86,7 @@ async function request<T>(
   } finally {
     httpLog("request.completed", {
       ...context, returnedAt: new Date().toISOString(),
-      durationMs: Math.round(performance.now() - started), status, result, resultSummary, errorMessage,
+      durationMs: Math.round(performance.now() - started), status: status ?? null, result, resultSummary, errorMessage,
     });
   }
 }

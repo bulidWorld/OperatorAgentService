@@ -76,25 +76,43 @@ function write(category: Category, event: string, fields: Record<string, unknown
   fields = { ...logContext.getStore(), ...fields };
   const description = describe(event, fields).replace(/[\r\n]/g, " ");
   const timestamp = now.toISOString();
-  const requestedLevel = String(fields.level || "INFO").toUpperCase();
+  const inferredLevel = fields.level ?? (
+    fields.result === "error"
+      ? fields.status === null || fields.status === undefined || Number(fields.status) >= 500 ? "ERROR" : "WARN"
+      : Number(fields.status) >= 500 ? "ERROR"
+        : Number(fields.status) >= 400 ? "WARN"
+          : "INFO"
+  );
+  const requestedLevel = String(inferredLevel).toUpperCase();
   const level = category === "error" ? "ERROR"
-    : requestedLevel === "DEBUG" || requestedLevel === "WARN" ? requestedLevel : "INFO";
+    : ["DEBUG", "WARN", "ERROR"].includes(requestedLevel) ? requestedLevel : "INFO";
   const logType = category === "error" ? "exception"
     : category === "http" && fields.direction === "inbound" ? "access"
     : category;
+  const path = typeof fields.path === "string"
+    ? fields.path
+    : typeof fields.url === "string"
+      ? (() => { try { return new URL(fields.url).pathname; } catch { return fields.url; } })()
+      : null;
+  const { stack, traceId, durationMs, ...recordFields } = fields;
   const structuredRecord = JSON.stringify({
-    ...fields,
+    ...recordFields,
     timestamp,
     level,
     log_type: logType,
-    trace_id: fields.traceId ?? fields.trace_id,
-    duration_ms: fields.durationMs ?? fields.duration_ms,
-    exceptionInfo: category === "error" ? fields.stack : undefined,
+    trace_id: traceId ?? fields.trace_id,
+    ...(logType === "http" || logType === "access" ? {
+      method: fields.method ?? null,
+      path,
+      status: fields.status ?? null,
+      duration_ms: durationMs ?? fields.duration_ms ?? null,
+    } : durationMs !== undefined || fields.duration_ms !== undefined
+      ? { duration_ms: durationMs ?? fields.duration_ms }
+      : {}),
+    exceptionInfo: category === "error" ? stack : undefined,
     message: description,
     event,
   });
-  const categoryLabel = { business: "业务日志", http: "HTTP请求日志", error: "报错日志" }[category];
-  const record = `[${timestamp}] [${level}] [${categoryLabel}] ${description} | ${JSON.stringify({ ...fields, timestamp, category, event, description })}`;
   if (category === "error") console.error(structuredRecord);
   else console.log(structuredRecord);
   try {
@@ -107,15 +125,28 @@ function write(category: Category, event: string, fields: Record<string, unknown
     if (!cleanupTimer) {
       cleanupTimer = setInterval(() => {
         try { cleanupLogs(); }
-        catch (error) { console.error("Log cleanup failed", error); }
+        catch (error) { writeInternalException("logger.cleanup.failed", error); }
       }, 60 * 60 * 1000);
       cleanupTimer.unref();
     }
-    appendFileSync(join(directory, `${category}-${now.toISOString().slice(0, 10)}.log`), `${record}\n`, { mode: 0o640 });
+    appendFileSync(join(directory, `${category}-${now.toISOString().slice(0, 10)}.log`), `${structuredRecord}\n`, { mode: 0o640 });
   } catch (error) {
     // Logging failures must remain visible without breaking monitoring requests.
-    console.error("Log write failed", error);
+    writeInternalException("logger.write.failed", error);
   }
+}
+
+/** 将日志系统自身错误作为 JSON 异常输出，避免回退成不合规范的文本日志。 */
+function writeInternalException(event: string, error: unknown) {
+  const exception = error instanceof Error ? error : new Error(String(error));
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: "ERROR",
+    log_type: "exception",
+    message: exception.message,
+    exceptionInfo: exception.stack,
+    event,
+  }));
 }
 
 /** 写入业务日志。
@@ -178,5 +209,80 @@ export async function withAccessLog<T extends { status: number }>(
  */
 export function errorLog(event: string, error: unknown, fields: Record<string, unknown> = {}) {
   const exception = error instanceof Error ? error : new Error(String(error));
-  write("error", event, { ...fields, message: exception.message, stack: exception.stack || new Error(exception.message).stack });
+  write("error", event, {
+    ...fields,
+    description: fields.description ?? exception.message,
+    message: exception.message,
+    stack: exception.stack || new Error(exception.message).stack,
+  });
+}
+
+/** 开始记录一次出站 HTTP 请求，并返回用于写入最终状态和耗时的完成函数。
+ * @param fields 请求方法、路径、操作名及关联上下文；不得包含认证头或敏感凭证。
+ * @returns 接收响应状态和可选异常、并只完成一次日志记录的函数。
+ */
+export function beginHttpLog(fields: Record<string, unknown>) {
+  const started = performance.now();
+  const context = {
+    requestId: typeof fields.requestId === "string" ? fields.requestId : randomUUID(),
+    traceId: logContext.getStore()?.traceId ?? randomUUID(),
+    direction: "outbound",
+    calledAt: new Date().toISOString(),
+    ...fields,
+  };
+  httpLog("request.started", context);
+  let completed = false;
+  return (status?: number, error?: unknown) => {
+    if (completed) return;
+    completed = true;
+    const errorMessage = error instanceof Error ? error.message : error === undefined ? undefined : String(error);
+    httpLog("request.completed", {
+      ...context,
+      returnedAt: new Date().toISOString(),
+      durationMs: Math.round(performance.now() - started),
+      status: status ?? null,
+      result: !error && status !== undefined && status >= 200 && status < 400 ? "success" : "error",
+      errorMessage,
+    });
+    if (error) errorLog("outbound.request.failed", error, context);
+  };
+}
+
+/** 包装一次出站 HTTP 操作，自动记录开始、状态、耗时和异常。
+ * @param fields 请求方法、路径、操作名及关联上下文；不得包含认证头或敏感凭证。
+ * @param action 要执行的同步或异步操作；返回值若含数值 status 字段，会作为响应状态记录。
+ * @returns action 的结果；action 抛出的异常会先记录再继续向调用方传播。
+ */
+export async function withHttpLog<T>(
+  fields: Record<string, unknown>,
+  action: () => T | Promise<T>,
+): Promise<T> {
+  const finishLog = beginHttpLog(fields);
+  try {
+    const result = await action();
+    const status = result && typeof result === "object" && "status" in result
+      && typeof result.status === "number"
+      ? result.status
+      : undefined;
+    finishLog(status);
+    return result;
+  } catch (error) {
+    finishLog(undefined, error);
+    throw error;
+  }
+}
+
+/** 将出站 HTTP 日志包装为 TypeScript 方法装饰器。
+ * @param getFields 根据方法参数生成请求方法、路径、操作名等日志字段。
+ * @returns 自动记录请求生命周期的异步方法装饰器。
+ */
+export function HttpLog(getFields: (...args: any[]) => Record<string, unknown>) {
+  return function <This, Args extends unknown[], Result>(
+    method: (this: This, ...args: Args) => Promise<Result>,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Promise<Result>>,
+  ) {
+    return function (this: This, ...args: Args) {
+      return withHttpLog(getFields(...args), () => method.apply(this, args));
+    };
+  };
 }

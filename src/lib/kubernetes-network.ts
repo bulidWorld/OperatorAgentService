@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
+import { beginHttpLog } from "./logger";
 
 const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 const API_LIMIT = 250;
@@ -16,24 +17,45 @@ async function listResource(path: string) {
   ]);
   const separator = path.includes("?") ? "&" : "?";
   const requestPath = `${path}${separator}limit=${API_LIMIT}`;
+  const finishLog = beginHttpLog({
+    method: "GET",
+    path,
+    operation: "Kubernetes 网络资源查询",
+  });
   return new Promise<{ items: KubeObject[]; truncated: boolean }>((resolve, reject) => {
     const req = httpsRequest({ hostname, port: Number(port), path: requestPath, method: "GET", ca,
       headers: { Authorization: `Bearer ${token.trim()}`, Accept: "application/json" } }, response => {
+      const status = response.statusCode ?? 500;
       const chunks: Buffer[] = [];
       let size = 0;
       response.on("data", (chunk: Buffer) => { size += chunk.length; if (size <= 5 * 1024 * 1024) chunks.push(chunk); });
       response.on("end", () => {
-        const status = response.statusCode ?? 500;
         const body = Buffer.concat(chunks).toString("utf8");
-        if (status < 200 || status >= 300) return reject(new Error(`Kubernetes 网络资源 API 返回 HTTP ${status}: ${body.slice(0, 500)}`));
+        if (status < 200 || status >= 300) {
+          const error = new Error(`Kubernetes 网络资源 API 返回 HTTP ${status}: ${body.slice(0, 500)}`);
+          finishLog(status, error);
+          return reject(error);
+        }
         try {
           const data = JSON.parse(body) as { items?: KubeObject[]; metadata?: { continue?: string } };
+          finishLog(status);
           resolve({ items: Array.isArray(data.items) ? data.items : [], truncated: Boolean(data.metadata?.continue) || size > 5 * 1024 * 1024 });
-        } catch { reject(new Error("Kubernetes API 返回了无效 JSON")); }
+        } catch {
+          const error = new Error("Kubernetes API 返回了无效 JSON");
+          finishLog(status, error);
+          reject(error);
+        }
+      });
+      response.on("error", error => {
+        finishLog(status, error);
+        reject(error);
       });
     });
     req.setTimeout(20000, () => req.destroy(new Error("Kubernetes 网络资源查询超时")));
-    req.on("error", reject);
+    req.on("error", error => {
+      finishLog(undefined, error);
+      reject(error);
+    });
     req.end();
   });
 }
