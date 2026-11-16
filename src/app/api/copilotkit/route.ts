@@ -3,7 +3,7 @@ import {
   CopilotRuntime,
   createCopilotHonoHandler,
 } from "@copilotkit/runtime/v2";
-import { errorLog, HttpLog, withAccessLog } from "@/lib/logger";
+import { errorLog, withAccessLog, withHttpLog } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -11,16 +11,16 @@ export const runtime = "nodejs";
 let handler: ReturnType<typeof createCopilotHonoHandler> | undefined;
 
 class LoggedAgentFetch {
-  @HttpLog((url: string, requestInit: RequestInit) => {
-    const target = new URL(url);
-    return {
-      method: requestInit.method ?? "POST",
-      path: target.pathname,
-      operation: "远端 AG-UI Agent 请求",
-    };
-  })
   fetch(url: string, requestInit: RequestInit): Promise<Response> {
-    return globalThis.fetch(url, requestInit);
+    const target = new URL(url);
+    return withHttpLog(
+      {
+        method: requestInit.method ?? "POST",
+        path: target.pathname,
+        operation: "远端 AG-UI Agent 请求",
+      },
+      () => globalThis.fetch(url, requestInit),
+    );
   }
 }
 
