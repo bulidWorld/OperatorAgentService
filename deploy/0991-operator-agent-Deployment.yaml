@@ -19,7 +19,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: web
-          image: lingxi.image.io/kunpeng/operator-agent/operator-agent-service:v0.001
+          image: lingxi.image.io/kunpeng/operator-agent/operator-agent-service:v0.006
           ports:
             - containerPort: 9090
           envFrom:
@@ -56,11 +56,6 @@ spec:
                 secretKeyRef:
                   name: operator-agent-service-db
                   key: password
-            - name: MCP_CALLERS_JSON
-              valueFrom:
-                secretKeyRef:
-                  name: operator-agent-service-mcp-callers
-                  key: callers-json
           volumeMounts:
             - name: logs
               mountPath: /var/service/operator-agent-service/log

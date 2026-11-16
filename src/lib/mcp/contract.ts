@@ -50,34 +50,50 @@ function validApprovalInputs(inputs: unknown): inputs is ApprovalInput[] {
   const keys = new Set<string>();
   return inputs.every((input) => {
     if (
-      !input || typeof input !== "object" || Array.isArray(input) ||
-      typeof input.key !== "string" || !input.key.trim() || keys.has(input.key) ||
-      typeof input.label !== "string" || !input.label.trim() ||
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      typeof input.key !== "string" ||
+      !input.key.trim() ||
+      keys.has(input.key) ||
+      typeof input.label !== "string" ||
+      !input.label.trim() ||
       typeof input.required !== "boolean" ||
       (input.placeholder !== undefined && typeof input.placeholder !== "string")
-    ) return false;
+    )
+      return false;
     keys.add(input.key);
     if (input.type === "confirm")
       return input.options === undefined && input.max_length === undefined;
     if (input.type === "single_select" || input.type === "multi_select") {
-      if (!Array.isArray(input.options) || input.options.length === 0 || input.max_length !== undefined)
+      if (
+        !Array.isArray(input.options) ||
+        input.options.length === 0 ||
+        input.max_length !== undefined
+      )
         return false;
       const values = new Set<string>();
       return input.options.every((option: unknown) => {
-        if (!option || typeof option !== "object" ||
+        if (
+          !option ||
+          typeof option !== "object" ||
           typeof (option as Record<string, unknown>).value !== "string" ||
           !(option as Record<string, unknown>).value ||
           typeof (option as Record<string, unknown>).label !== "string" ||
           !(option as Record<string, unknown>).label ||
-          values.has((option as Record<string, unknown>).value as string))
+          values.has((option as Record<string, unknown>).value as string)
+        )
           return false;
         values.add((option as Record<string, unknown>).value as string);
         return true;
       });
     }
-    return input.type === "text" && input.options === undefined &&
+    return (
+      input.type === "text" &&
+      input.options === undefined &&
       (input.max_length === undefined ||
-        (Number.isInteger(input.max_length) && input.max_length >= 0));
+        (Number.isInteger(input.max_length) && input.max_length >= 0))
+    );
   });
 }
 
@@ -105,7 +121,9 @@ export function getMcpContract(): Promise<Contract> {
         if (
           tool._meta?.serverId !== "kubernetes-mcp" ||
           tool._meta.toolName !== tool.name ||
-          !["low", "medium", "high", "critical"].includes(tool._meta.security?.riskLevel) ||
+          !["low", "medium", "high", "critical"].includes(
+            tool._meta.security?.riskLevel,
+          ) ||
           !["none", "conditional", "required"].includes(
             tool._meta.security?.approvalMode,
           ) ||
@@ -113,7 +131,9 @@ export function getMcpContract(): Promise<Contract> {
           !["allow", "deny", "require_approval"].includes(
             tool._meta.security?.defaultAction,
           ) ||
-          !["fixed", "model_assisted"].includes(tool._meta.approval?.inputPolicy) ||
+          !["fixed", "model_assisted"].includes(
+            tool._meta.approval?.inputPolicy,
+          ) ||
           tool._meta.approval?.schema_version !== 1 ||
           !Array.isArray(tool._meta.approval?.allowedInputTypes) ||
           !tool._meta.approval.allowedInputTypes.every((type) =>
@@ -121,15 +141,21 @@ export function getMcpContract(): Promise<Contract> {
           ) ||
           !validApprovalInputs(tool._meta.approval?.inputs)
         )
-          throw new Error("MCP 工具缺少有效 _meta.security 或 _meta.approval：" + tool.name);
+          throw new Error(
+            "MCP 工具缺少有效 _meta.security 或 _meta.approval：" + tool.name,
+          );
         const { security, approval } = tool._meta;
         if (
-          (security.approvalMode === "required" && !security.approvalRole.trim()) ||
-          (security.approvalMode === "conditional" && !security.approvalRole.trim()) ||
-          (approval.inputPolicy === "model_assisted" && (
-            new Set(approval.allowedInputTypes).size !== approval.allowedInputTypes.length ||
-            approval.inputs.some((input) => !approval.allowedInputTypes.includes(input.type))
-          ))
+          (security.approvalMode === "required" &&
+            !security.approvalRole.trim()) ||
+          (security.approvalMode === "conditional" &&
+            !security.approvalRole.trim()) ||
+          (approval.inputPolicy === "model_assisted" &&
+            (new Set(approval.allowedInputTypes).size !==
+              approval.allowedInputTypes.length ||
+              approval.inputs.some(
+                (input) => !approval.allowedInputTypes.includes(input.type),
+              )))
         )
           throw new Error("MCP 工具安全策略与审批定义不兼容：" + tool.name);
       }

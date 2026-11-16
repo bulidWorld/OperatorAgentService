@@ -515,69 +515,75 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
      * @param requestParams MCP SDK 校验后的工具名称与调用参数。
      * @returns MCP 工具结果；业务失败通过 isError 和结构化错误内容返回。
      */
-    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (requestParams) => {
-      const startedAt = Date.now();
-      const tool = contract.tools.find(
-        (candidate) => candidate.name === requestParams.params.name,
-      );
-      if (!tool || !canUse(caller, tool)) {
-        businessLog("mcp.tool.denied", {
-          level: "WARN",
-          callerId: caller.callerId,
-          tool: requestParams.params.name,
-          description: "MCP 工具调用被权限策略拒绝",
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                code: "FORBIDDEN",
-                message: "未知或未授权工具",
-              }),
-            },
-          ],
-          structuredContent: { code: "FORBIDDEN", message: "未知或未授权工具" },
-          isError: true,
-        };
-      }
-      try {
-        const args = (requestParams.params.arguments ?? {}) as Record<
-          string,
-          unknown
-        >;
-        const result = await execute(tool, caller, args);
-        validToolResult(tool, result);
-        const serialized = JSON.stringify(result);
-        if (Buffer.byteLength(serialized, "utf8") > 1024 * 1024)
-          throw Object.assign(new Error("RESULT_TOO_LARGE"), {
-            code: "RESULT_TOO_LARGE",
+    mcpServer.server.setRequestHandler(
+      CallToolRequestSchema,
+      async (requestParams) => {
+        const startedAt = Date.now();
+        const tool = contract.tools.find(
+          (candidate) => candidate.name === requestParams.params.name,
+        );
+        if (!tool || !canUse(caller, tool)) {
+          businessLog("mcp.tool.denied", {
+            level: "WARN",
+            callerId: caller.callerId,
+            tool: requestParams.params.name,
+            description: "MCP 工具调用被权限策略拒绝",
           });
-        businessLog("mcp.tool.completed", {
-          callerId: caller.callerId,
-          tool: tool.name,
-          durationMs: Date.now() - startedAt,
-        });
-        return {
-          content: [{ type: "text", text: serialized }],
-          structuredContent: result as Record<string, unknown>,
-          isError: false,
-        };
-      } catch (error) {
-        const failure = codedError(error);
-        errorLog("mcp.tool.failed", error, {
-          callerId: caller.callerId,
-          tool: tool.name,
-          code: failure.code,
-          durationMs: Date.now() - startedAt,
-        });
-        return {
-          content: [{ type: "text", text: JSON.stringify(failure) }],
-          structuredContent: failure,
-          isError: true,
-        };
-      }
-    });
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  code: "FORBIDDEN",
+                  message: "未知或未授权工具",
+                }),
+              },
+            ],
+            structuredContent: {
+              code: "FORBIDDEN",
+              message: "未知或未授权工具",
+            },
+            isError: true,
+          };
+        }
+        try {
+          const args = (requestParams.params.arguments ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const result = await execute(tool, caller, args);
+          validToolResult(tool, result);
+          const serialized = JSON.stringify(result);
+          if (Buffer.byteLength(serialized, "utf8") > 1024 * 1024)
+            throw Object.assign(new Error("RESULT_TOO_LARGE"), {
+              code: "RESULT_TOO_LARGE",
+            });
+          businessLog("mcp.tool.completed", {
+            callerId: caller.callerId,
+            tool: tool.name,
+            durationMs: Date.now() - startedAt,
+          });
+          return {
+            content: [{ type: "text", text: serialized }],
+            structuredContent: result as Record<string, unknown>,
+            isError: false,
+          };
+        } catch (error) {
+          const failure = codedError(error);
+          errorLog("mcp.tool.failed", error, {
+            callerId: caller.callerId,
+            tool: tool.name,
+            code: failure.code,
+            durationMs: Date.now() - startedAt,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(failure) }],
+            structuredContent: failure,
+            isError: true,
+          };
+        }
+      },
+    );
     await mcpServer.connect(transport);
     try {
       return await transport.handleRequest(mcpRequest);

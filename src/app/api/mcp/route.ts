@@ -9,7 +9,9 @@ export const runtime = "nodejs";
  * @returns MCP JSON-RPC 响应或包含错误状态的 JSON 响应。
  */
 export async function POST(request: Request): Promise<Response> {
-  return withAccessLog(request, "MCP Streamable HTTP", () => handleMcpRequest(request));
+  return withAccessLog(request, "MCP Streamable HTTP", () =>
+    handleMcpRequest(request),
+  );
 }
 
 /**
@@ -17,7 +19,12 @@ export async function POST(request: Request): Promise<Response> {
  * @returns HTTP 405 JSON 响应，并通过 Allow 头声明只允许 POST。
  */
 export async function GET(request: Request) {
-  return withAccessLog(request, "MCP Streamable HTTP SSE", async () => Response.json({ error: "此 MCP 端点使用无状态 Streamable HTTP；GET SSE 尚未启用" }, { status: 405, headers: { allow: "POST" } }));
+  return withAccessLog(request, "MCP Streamable HTTP SSE", async () =>
+    Response.json(
+      { error: "此 MCP 端点使用无状态 Streamable HTTP；GET SSE 尚未启用" },
+      { status: 405, headers: { allow: "POST" } },
+    ),
+  );
 }
 
 /**
@@ -25,6 +32,10 @@ export async function GET(request: Request) {
  * @returns HTTP 405 JSON 响应，并通过 Allow 头声明只允许 POST。
  */
 export async function DELETE(request: Request) {
-  return withAccessLog(request, "MCP Streamable HTTP 会话终止", async () => Response.json({ error: "无状态 MCP 端点不支持 DELETE" }, { status: 405, headers: { allow: "POST" } }));
+  return withAccessLog(request, "MCP Streamable HTTP 会话终止", async () =>
+    Response.json(
+      { error: "无状态 MCP 端点不支持 DELETE" },
+      { status: 405, headers: { allow: "POST" } },
+    ),
+  );
 }
-

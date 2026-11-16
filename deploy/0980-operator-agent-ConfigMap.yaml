@@ -6,4 +6,6 @@ metadata:
 data:
   PROMETHEUS_URL: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   DEMO_MODE: "false"
-  LANGGRAPH_DEPLOYMENT_URL: "http://langgraph-server:8123" # Must expose an AG-UI-compatible endpoint
+  LLM_BASE_URL: "http://192.168.100.133:8787/v1"
+  LLM_API_KEY: "gw_OiKNMlPLIkwC4DkneUTOU3hux8_XlTdiRq5bHU0z9ec"
+  LLM_MODEL: "gpt-6-luna"
