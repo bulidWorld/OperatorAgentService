@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -86,64 +86,16 @@ function validToolResult(tool: ToolDefinition, result: unknown) {
 
 /**
  * 判断调用者是否有权发现并调用指定工具。
- * @param caller 已认证且带有工具、命名空间和目标白名单的调用者。
+ * @param caller 已认证且带有工具权限的调用者。
  * @param tool 待检查的 MCP 工具。
- * @returns 所需权限及运行配置均满足时返回 true，否则返回 false。
+ * @returns 所需权限满足时返回 true，否则返回 false。
+ * tools 含 "ALL" 时视为拥有全部工具权限。
  */
 function canUse(caller: McpCaller, tool: ToolDefinition) {
   const scope = TOOL_SCOPES[tool.name];
-  if (!caller.tools.includes(scope)) return false;
-  if (
-    scope === "mcp:read" &&
-    !caller.clusterRead &&
-    caller.namespaces.length === 0
-  )
+  if (!caller.tools.includes(scope) && !caller.tools.includes("ALL"))
     return false;
-  if (
-    tool.name === "restart_pod" &&
-    !caller.clusterRead &&
-    caller.namespaces.length === 0
-  )
-    return false;
-  if (tool.name === "query_promql" && !caller.clusterRead) return false;
-  if (tool.name === "check_network_connectivity")
-    return caller.probeTargets.length > 0;
   return true;
-}
-
-/**
- * 校验调用者是否可以访问指定命名空间。
- * @param caller 已认证调用者及其命名空间范围。
- * @param namespace 工具参数中的命名空间；集群级查询时可能缺省。
- * @returns 访问授权通过时解析为 void。
- * @throws 命名空间缺省但无集群权限，或指定命名空间不在授权范围时抛出 FORBIDDEN。
- */
-function requireNamespace(caller: McpCaller, namespace: unknown) {
-  if (typeof namespace !== "string" || !namespace) {
-    if (!caller.clusterRead)
-      throw Object.assign(new Error("此调用需要指定 namespace"), {
-        code: "FORBIDDEN",
-      });
-    return;
-  }
-  if (!caller.clusterRead && !caller.namespaces.includes(namespace))
-    throw Object.assign(new Error("无权访问该 namespace"), {
-      code: "FORBIDDEN",
-    });
-}
-
-/**
- * 要求调用者具有集群范围读取权限。
- * @param caller 已认证调用者。
- * @param tool 发起集群级读取的工具名称，用于错误描述。
- * @returns 授权通过时解析为 void。
- * @throws 调用者未获 clusterRead 权限时抛出 FORBIDDEN。
- */
-function requireClusterRead(caller: McpCaller, tool: string) {
-  if (!caller.clusterRead)
-    throw Object.assign(new Error(tool + " 需要 clusterRead 权限"), {
-      code: "FORBIDDEN",
-    });
 }
 
 /**
@@ -165,42 +117,6 @@ function checkRateLimit(callerId: string) {
   if (requestCounts.size > 10_000)
     for (const [key, value] of requestCounts)
       if (now - value.start > 60_000) requestCounts.delete(key);
-}
-
-/**
- * 检查网络探测参数是否匹配调用者配置的精确目标白名单。
- * @param caller 已认证调用者及其 probeTargets 配置。
- * @param args 包含探测类型、主机、端口和可选 URL 的工具参数。
- * @returns 参数与白名单相符时解析为 void。
- * @throws host/type/port 或 HTTP URL 主机不在白名单时抛出 FORBIDDEN。
- */
-function probeAllowed(caller: McpCaller, args: Record<string, unknown>) {
-  const host = String(args.host).toLowerCase().replace(/\.$/, "");
-  const type = args.type;
-  const target = caller.probeTargets.find(
-    (item) =>
-      item.host.toLowerCase().replace(/\.$/, "") === host && item.type === type,
-  );
-  if (!target)
-    throw Object.assign(new Error("此 host/type 不在调用者网络探测白名单内"), {
-      code: "FORBIDDEN",
-    });
-  if (type === "tcp" && !target.ports?.includes(Number(args.port)))
-    throw Object.assign(new Error("此 TCP 端口不在调用者白名单内"), {
-      code: "FORBIDDEN",
-    });
-  if (type === "http") {
-    const url = new URL(String(args.url));
-    if (url.hostname.toLowerCase().replace(/\.$/, "") !== host)
-      throw Object.assign(new Error("HTTP URL 主机与白名单目标不一致"), {
-        code: "FORBIDDEN",
-      });
-    const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
-    if (!target.ports?.includes(port))
-      throw Object.assign(new Error("此 HTTP 端口不在调用者白名单内"), {
-        code: "FORBIDDEN",
-      });
-  }
 }
 
 /**
@@ -254,8 +170,6 @@ async function execute(
   validToolArguments(tool, args);
   switch (tool.name) {
     case "query_alerts": {
-      if (args.namespace) requireNamespace(caller, args.namespace);
-      else requireClusterRead(caller, tool.name);
       const alerts: unknown[] = [];
       let cursor: string | undefined;
       do {
@@ -273,7 +187,6 @@ async function execute(
       return { total: alerts.length, alerts };
     }
     case "query_promql": {
-      requireClusterRead(caller, tool.name);
       const promql = String(args.promql).trim();
       const rangeMinutes = args.rangeMinutes as number | undefined;
       const stepSeconds = args.stepSeconds as number | undefined;
@@ -303,15 +216,11 @@ async function execute(
       const detail = await getStoredAlertDetails(Number(args.id));
       if (!detail)
         return { found: false, id: args.id, message: "未找到该告警记录" };
-      requireNamespace(caller, detail.namespace);
       return { found: true, ...detail };
     }
     case "query_pod_logs":
-      requireNamespace(caller, args.namespace);
       return getPodLogs(args as Parameters<typeof getPodLogs>[0]);
     case "query_k8s_network":
-      if (args.namespace) requireNamespace(caller, args.namespace);
-      else requireClusterRead(caller, tool.name);
       return queryKubernetesNetwork(
         args as Parameters<typeof queryKubernetesNetwork>[0],
       );
@@ -324,12 +233,10 @@ async function execute(
         throw Object.assign(new Error("HTTP 检测必须提供 url"), {
           code: "INVALID_PARAMS",
         });
-      probeAllowed(caller, args);
       return runNetworkProbe(args as Parameters<typeof runNetworkProbe>[0], {
         followRedirects: false,
       });
     case "restart_pod": {
-      requireNamespace(caller, args.namespace);
       const namespace = String(args.namespace);
       const pod = String(args.pod);
       const uid = await getPodUid({ namespace, pod });
@@ -348,7 +255,7 @@ async function execute(
 }
 
 /**
- * 通过 bearer token 的 SHA-256 摘要匹配调用者配置。
+ * 用请求中的 bearer token 与调用者配置的原始 token 直接比对。
  * @param request 当前 HTTP 请求，读取 Authorization 请求头。
  * @param callers 已验证的 MCP 调用者授权列表。
  * @returns 匹配的调用者；凭证无效或缺失时返回 undefined。
@@ -357,11 +264,12 @@ function authorizedCaller(request: Request, callers: McpCaller[]) {
   const header = request.headers.get("authorization") ?? "";
   const match = /^Bearer ([A-Za-z0-9._~+/-]{32,512})$/.exec(header);
   if (!match) return undefined;
-  const digest = createHash("sha256").update(match[1]).digest();
+  const provided = Buffer.from(match[1]);
   return callers.find((caller) => {
-    const expected = Buffer.from(caller.tokenSha256, "hex");
+    const expected = Buffer.from(caller.token);
     return (
-      expected.length === digest.length && timingSafeEqual(expected, digest)
+      expected.length === provided.length &&
+      timingSafeEqual(expected, provided)
     );
   });
 }

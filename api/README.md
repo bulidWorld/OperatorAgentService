@@ -4,19 +4,19 @@
 
 [mcp.yaml](mcp.yaml) 是 MCP 工具接口契约，包含 Streamable HTTP 传输、JSON-RPC 调用示例、输入/输出 JSON Schema 和每个工具的风险元数据。`tools` 数组采用 MCP Tool 格式，`_meta.security` 将 riskLevel、approvalMode、approvalRole 和 defaultAction 提供给 LangGraphServer；它不是 OpenAPI 文档。Next.js `/api/mcp` 路由按此文件动态提供工具定义。
 
-MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token 的 SHA-256 小写十六进制摘要 `tokenSha256`、授权范围 `tools`、命名空间列表 `namespaces`、集群级读取开关 `clusterRead` 和显式网络探测白名单 `probeTargets`。`tools` 使用 `mcp:read`、`mcp:probe`、`mcp:restart` 权限名。PromQL 仅向 `clusterRead=true` 的调用者显示，因为 PromQL 本身可查询任意指标标签。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
+MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token `token` 和授权范围 `tools`。`tools` 使用 `mcp:read`、`mcp:probe`、`mcp:restart` 权限名，或写 `"ALL"` 表示拥有全部工具权限；持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
 
-示例（token 值只在调用方安全保存，服务端仅配置摘要）：
+示例（客户端在 `Authorization: Bearer ...` 中发送与配置一致的原始 token）：
 
 ```json
-[{"callerId":"diagnostics-bot","tokenSha256":"<64 位 SHA-256 十六进制摘要>","tools":["mcp:read"],"namespaces":["production"],"clusterRead":false,"probeTargets":[]}]
+[{"callerId":"diagnostics-bot","token":"<32 字节以上随机 token>","tools":["mcp:read"]}]
 ```
 
-MCP bearer token 由客户端放在 `Authorization: Bearer ...` 中。若请求带 `Origin`，需将完整 origin 加到 `MCP_ALLOWED_ORIGINS` 逗号分隔列表。服务对每个调用者执行进程内每分钟 120 次限流。网络探测仅对 `probeTargets` 的精确 host/type/port 放行；HTTP 探测不跟随重定向。
+MCP bearer token 由客户端放在 `Authorization: Bearer ...` 中。若请求带 `Origin`，需将完整 origin 加到 `MCP_ALLOWED_ORIGINS` 逗号分隔列表。服务对每个调用者执行进程内每分钟 120 次限流。持有 `mcp:probe` 权限即可探测任意 host/type/port；HTTP 探测不跟随重定向。
 
 MCP 是 NodePort 外部入口时，应由 HTTPS ingress 或服务网格终止 TLS 后再转发，避免 bearer token 在网络中以明文传输。
 
-是否需要人工审批由 LangGraphServer 读取每个工具的 `_meta.security` 后决定。MCP 服务仅执行经过调用者工具权限与命名空间授权的调用，不保存或验证审批记录；`restart_pod` 仍使用 Kubernetes UID precondition 防止误删同名重建的 Pod。生产环境应只向受信任的 LangGraphServer 发放 `mcp:restart` 凭证，并通过 HTTPS 传输 bearer token。
+是否需要人工审批由 LangGraphServer 读取每个工具的 `_meta.security` 后决定。MCP 服务仅执行经过调用者工具权限授权的调用，不保存或验证审批记录；`restart_pod` 仍使用 Kubernetes UID precondition 防止误删同名重建的 Pod。生产环境应只向受信任的 LangGraphServer 发放 `mcp:restart` 凭证，并通过 HTTPS 传输 bearer token。
 
 | 方法 | 路径 | 用途 | 成功响应 | 错误响应 |
 | --- | --- | --- | --- | --- |

@@ -164,24 +164,18 @@ export function getMcpContract(): Promise<Contract> {
   return contractPromise;
 }
 
-export type ProbeTarget = {
-  host: string;
-  type: "icmp" | "tcp" | "http";
-  ports?: number[];
-};
 export type McpCaller = {
   callerId: string;
-  tokenSha256: string;
+  token: string;
   tools: string[];
-  namespaces: string[];
-  clusterRead: boolean;
-  probeTargets: ProbeTarget[];
 };
 
 /**
  * 解析并验证环境变量中的 MCP 调用者授权配置。
  * @returns 已校验的调用者列表；未设置 MCP_CALLERS_JSON 时返回空数组。
- * @throws JSON 格式、调用者字段、权限名、探测目标或唯一性校验失败时抛出错误。
+ * @throws JSON 格式、调用者字段、权限名或唯一性校验失败时抛出错误。
+ * 调用者 token 以明文保存，须为 32～512 字节的可传输字符，与客户端发送的
+ * bearer token 直接比对。
  */
 export function getMcpCallers(): McpCaller[] {
   const raw = process.env.MCP_CALLERS_JSON;
@@ -199,41 +193,16 @@ export function getMcpCallers(): McpCaller[] {
     if (!entry || typeof entry !== "object")
       throw new Error("MCP_CALLERS_JSON[" + index + "] 无效");
     const caller = entry as Partial<McpCaller>;
-    const validProbeTargets =
-      Array.isArray(caller.probeTargets) &&
-      caller.probeTargets.every((target) => {
-        if (!target || typeof target !== "object") return false;
-        return (
-          typeof target.host === "string" &&
-          target.host.length <= 253 &&
-          /^[a-zA-Z0-9.-]+$/.test(target.host) &&
-          !target.host.startsWith(".") &&
-          !target.host.endsWith(".") &&
-          ["icmp", "tcp", "http"].includes(target.type) &&
-          (target.ports === undefined ||
-            (Array.isArray(target.ports) &&
-              target.ports.every(
-                (port) => Number.isInteger(port) && port >= 1 && port <= 65535,
-              )))
-        );
-      });
     if (
       typeof caller.callerId !== "string" ||
       !/^[a-zA-Z0-9._-]{1,100}$/.test(caller.callerId) ||
-      typeof caller.tokenSha256 !== "string" ||
-      !/^[a-fA-F0-9]{64}$/.test(caller.tokenSha256) ||
+      typeof caller.token !== "string" ||
+      !/^[A-Za-z0-9._~+/-]{32,512}$/.test(caller.token) ||
       !Array.isArray(caller.tools) ||
       !caller.tools.every((tool) => typeof tool === "string") ||
-      !Array.isArray(caller.namespaces) ||
-      !caller.namespaces.every(
-        (namespace) =>
-          typeof namespace === "string" &&
-          /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace),
-      ) ||
-      typeof caller.clusterRead !== "boolean" ||
-      !validProbeTargets ||
       caller.tools.some(
-        (tool) => !["mcp:read", "mcp:probe", "mcp:restart"].includes(tool),
+        (tool) =>
+          !["ALL", "mcp:read", "mcp:probe", "mcp:restart"].includes(tool),
       )
     )
       throw new Error("MCP_CALLERS_JSON[" + index + "] 字段无效");
@@ -241,9 +210,8 @@ export function getMcpCallers(): McpCaller[] {
   });
   if (
     new Set(callers.map((caller) => caller.callerId)).size !== callers.length ||
-    new Set(callers.map((caller) => caller.tokenSha256.toLowerCase())).size !==
-      callers.length
+    new Set(callers.map((caller) => caller.token)).size !== callers.length
   )
-    throw new Error("MCP_CALLERS_JSON 中 callerId 和 tokenSha256 必须唯一");
+    throw new Error("MCP_CALLERS_JSON 中 callerId 和 token 必须唯一");
   return callers;
 }

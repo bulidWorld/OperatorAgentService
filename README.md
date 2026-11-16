@@ -31,13 +31,9 @@ npm start
 
 Kubernetes 部署通过 ConfigMap 的 `LANGGRAPH_DEPLOYMENT_URL` 配置远端 AG-UI 兼容 endpoint。该地址必须接收 AG-UI HTTP 请求，graph 选择由 endpoint 负责。将 `deploy/0990-operator-agent-ServiceAccount.yaml` 应用后，ServiceAccount 可 list/watch Events、get/list Pods、Services、Endpoints、EndpointSlices、NetworkPolicies、Nodes，并 get `pods/log`。另有独立 ClusterRole 仅授予所有 namespace 下 `pods` 的 `delete`，供 MCP `restart_pod` 工具使用；不授予其他 Kubernetes 写权限。是否审批由远端 LangGraph 编排决定。
 
-MCP 入口需要配置调用者凭证，否则 `/api/mcp` 返回 503。将授权调用者的 JSON 数组写入 `mcp-callers.json`，并创建 Secret：
+MCP 入口需要配置调用者凭证，否则 `/api/mcp` 返回 503。授权调用者的 JSON 数组配置在 [deploy/0980-operator-agent-ConfigMap.yaml](deploy/0980-operator-agent-ConfigMap.yaml) 的 `MCP_CALLERS_JSON` 字段中：
 
-```bash
-kubectl -n monitoring create secret generic operator-agent-service-mcp-callers --from-file=callers-json=./mcp-callers.json
-```
-
-每个调用者配置 token 的 SHA-256 摘要、工具 scope 和资源范围；原始 bearer token 单独安全配置在远端 LangGraph Server。不要把原始 token 放入此服务的 Secret。凭证字段格式见 [api/README.md](api/README.md)。
+每个调用者配置原始 bearer token 和工具 scope（`mcp:*` 权限名或 `"ALL"` 通配）；客户端与服务端使用同一 token 直接比对，token 与远端 LangGraph Server 的客户端配置保持一致。凭证字段格式见 [api/README.md](api/README.md)。
 
 HTTP 接口的 OpenAPI 契约见 [api/openapi.yaml](api/openapi.yaml)，请求参数、响应结构、错误码和 webhook 示例见 [api/README.md](api/README.md)，详细调用路径见 [api/调用链.md](api/调用链.md)。修改接口时先更新 YAML，运行 `npm run api:generate` 生成 TypeScript 类型，再实现路由；`npm run typecheck` 会检查生成代码是否与 YAML 同步，并检查路由响应类型。
 

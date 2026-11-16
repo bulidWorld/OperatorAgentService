@@ -45,14 +45,14 @@ server:
     tools:
       listChanged: false
   instructions: 本服务提供 Kubernetes 和监控工具。调用方应读取每个 Tool 的 _meta.security 与 _meta.approval，并由上游 LangGraphServer 按安全策略和审批定义
-    编排授权和人工审批。元数据是策略输入；MCP 服务仍执行调用者和资源权限校验。
+    编排授权和人工审批。元数据是策略输入；MCP 服务仍执行调用者工具权限校验。
   authentication:
     mode: private-service-bearer
     notes: 首版面向受控服务间调用；生产环境应只向受信任的 LangGraphServer 发放带 mcp:restart 的凭证。此模式不宣称实现完整 MCP OAuth 授权发现；要求 OAuth 的客户端需后续适配。
     credentialSource: 独立 Secret，不复用 Webhook token 或 Kubernetes ServiceAccount token。
-    callerRecord: '{"callerId":"langgraph-server","tokenSha256":"<64 lowercase hex SHA-256 digest>","tools":["mcp:read","mcp:probe","mcp:restart"],"namespaces":["production"],"clusterRead":false,"probeTargets":[{"host":"payments.internal.example","type":"tcp","ports":[443]}]}'
-    tokenDigest: MCP bearer token 使用至少 32 个随机字节；服务端仅保存写入 MCP_CALLERS_JSON 的 SHA-256 小写十六进制摘要。明文凭证不写入日志或 caller JSON。
-    principal: 每个凭证映射稳定 callerId、允许工具和 namespace 范围；每次 tools/list 和 tools/call 均校验。
+    callerRecord: '{"callerId":"langgraph-server","token":"<32+ 字节随机 bearer token>","tools":["mcp:read","mcp:probe","mcp:restart"]}'
+    tokenMatch: MCP bearer token 使用至少 32 个随机字节；客户端发送的 token 与 MCP_CALLERS_JSON 中的原始 token 直接比对，不做摘要。明文凭证不写入日志。
+    principal: 每个凭证映射稳定 callerId 和允许工具；tools 取 mcp:read、mcp:probe、mcp:restart 或 ALL 通配。每次 tools/list 和 tools/call 均校验。
     toolScopes:
       query_alerts: mcp:read
       query_promql: mcp:read
@@ -62,7 +62,7 @@ server:
       check_network_connectivity: mcp:probe
       restart_pod: mcp:restart
     discoveryPolicy: tools/list 仅返回调用者被授权且已启用的工具；未授权调用不得执行。
-    namespacePolicy: 缺省 namespace 不等于可访问全部命名空间；必须在查询前限定授权范围。集群级资源须额外授权。
+    namespacePolicy: 持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分授权范围。
   methods:
     initialize: 返回协商后的 protocolVersion、capabilities、serverInfo 和 instructions。
     notifications/initialized: 接收初始化完成通知，HTTP 202，无 JSON-RPC 响应体。
@@ -103,21 +103,21 @@ executionRules:
   query_promql:
   - promql 在执行前 trim；未传 rangeMinutes 为即时查询，单传 stepSeconds 为参数错误。
   - 区间以服务端当前时间为终点，stepSeconds 缺省 60；ceil(rangeMinutes*60/stepSeconds)>3000 时拒绝。
-  - JSON Schema 范围约束之外的跨字段校验由执行层保留。PromQL 查询仍须在数据源侧落实调用者的数据访问范围。
+  - JSON Schema 范围约束之外的跨字段校验由执行层保留。
   query_pod_logs:
   - sinceMinutes 缺省 60，tailLines 缺省 300。
   - 现有日志结果最多保留约 128 KiB，并通过 truncated 标记；namespace/pod/container 格式继续由执行层校验。
   query_k8s_network:
-  - namespace/service 格式由执行层校验；缺省 namespace 的查询必须服从调用者授权范围。
+  - namespace/service 格式由执行层校验；持有 mcp:read 即视为拥有全部命名空间的读取权限，缺省 namespace 查询全集群。
   - 沿用现有资源查询与截断标记；API 配置快照不能证明实际数据包已经被阻断。
   check_network_connectivity:
   - tcp 必须传 port；http 必须传 url。
-  - HTTP URL 必须是无用户密码的 http/https，长度不超过 2048，URL hostname 和有效端口必须与调用者 probeTargets 一致；host 格式由执行层校验。
-  - 不接受模型提供的 shell；只运行服务端白名单命令。MCP 入口另行限制调用者允许探测的精确 host/type/port；HTTP 探测不跟随重定向。
+  - HTTP URL 必须是无用户密码的 http/https，长度不超过 2048；host 格式由执行层校验。
+  - 不接受模型提供的 shell；只运行服务端白名单命令。持有 mcp:probe 权限即可探测任意地址；HTTP 探测不跟随重定向。
   - HTTP 探测会真实发送请求，不能保证幂等；annotations 仅为提示。
   restart_pod:
   - 本工具执行 Pod 删除；上游 LangGraphServer 根据 _meta.security 与 _meta.approval 完成审批编排后，使用具备 mcp:restart 权限的身份调用。
-  - MCP 服务不保存或验证上游审批记录；服务仍验证调用者权限和 namespace 范围，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
+  - MCP 服务不保存或验证上游审批记录；服务仍验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
   - 删除成功仅表示 Pod 已删除，不保证控制器重建成功。
 tools:
 - name: query_alerts
