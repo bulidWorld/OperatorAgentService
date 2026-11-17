@@ -16,7 +16,7 @@ components:
         type: { const: approval_request }
         schema_version: { const: 1 }
         request_id: { type: string, minLength: 1 }
-        action: { type: string, enum: [business_fix, restart_container] }
+        action: { type: string, minLength: 1 }
         title: { type: string, minLength: 1 }
         rationale: { type: string }
         change_plan: { type: string }

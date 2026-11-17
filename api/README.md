@@ -4,7 +4,9 @@
 
 [mcp.yaml](mcp.yaml) 是 MCP 工具接口契约，包含 Streamable HTTP 传输、JSON-RPC 调用示例、输入/输出 JSON Schema 和每个工具的风险元数据。`tools` 数组采用 MCP Tool 格式，`_meta.security` 将 riskLevel、approvalMode、approvalRole 和 defaultAction 提供给 LangGraphServer；它不是 OpenAPI 文档。Next.js `/api/mcp` 路由按此文件动态提供工具定义。
 
-MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token `token` 和授权范围 `tools`。`tools` 使用 `mcp:read`、`mcp:probe`、`mcp:restart` 权限名，或写 `"ALL"` 表示拥有全部工具权限；持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
+`_meta.approval` 始终存在；当 `approvalMode=none` 时必须是空对象 `{}`，仅 `required` 或 `conditional` 模式提供版本化的审批交互定义。
+
+MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token `token` 和授权范围 `tools`。`tools` 使用 `mcp:read`、`mcp:restart` 权限名，或写 `"ALL"` 表示拥有全部工具权限；持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
 
 示例（客户端在 `Authorization: Bearer ...` 中发送与配置一致的原始 token）：
 
@@ -12,7 +14,7 @@ MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 
 [{"callerId":"diagnostics-bot","token":"<32 字节以上随机 token>","tools":["mcp:read"]}]
 ```
 
-MCP bearer token 由客户端放在 `Authorization: Bearer ...` 中。若请求带 `Origin`，需将完整 origin 加到 `MCP_ALLOWED_ORIGINS` 逗号分隔列表。服务对每个调用者执行进程内每分钟 120 次限流。持有 `mcp:probe` 权限即可探测任意 host/type/port；HTTP 探测不跟随重定向。
+MCP bearer token 由客户端放在 `Authorization: Bearer ...` 中。若请求带 `Origin`，需将完整 origin 加到 `MCP_ALLOWED_ORIGINS` 逗号分隔列表。服务对每个调用者执行进程内每分钟 120 次限流。
 
 MCP 是 NodePort 外部入口时，应由 HTTPS ingress 或服务网格终止 TLS 后再转发，避免 bearer token 在网络中以明文传输。
 

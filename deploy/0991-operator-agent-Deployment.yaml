@@ -19,7 +19,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: web
-          image: lingxi.image.io/kunpeng/operator-agent/operator-agent-service:v0.006
+          image: lingxi.image.io/kunpeng/operator-agent/operator-agent-service:v0.014
           ports:
             - containerPort: 9090
           envFrom:

@@ -33,8 +33,6 @@ const toolLabels: Record<string, string> = {
   query_alerts: "查询相关告警",
   query_promql: "查询监控指标",
   query_pod_logs: "读取 Pod 日志",
-  query_k8s_network: "检查 Kubernetes 网络状态",
-  check_network_connectivity: "探测网络连通性",
   request_pod_restart_approval: "申请重启 Pod 审批",
 };
 
@@ -96,7 +94,7 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
     agent.addMessage({
       id: `diagnose-${alertId}`,
       role: "user",
-      content: `请诊断告警 ID ${alertId}。必须先调用 query_alert_details，参数 id=${alertId}，检查 resolutionStatus 和 resolvedAt。若仍 active，结合告警详情、同对象相关告警和需要时的 Pod 日志分析当前故障；若已 resolved，使用 occurredAt 到 resolvedAt 作为时间范围，并按 namespace、objectType、objectName 查询相关告警（includeResolved=true），追溯恢复前的原因。只要告警或描述涉及网络不通、连接超时、Service 无后端等网络问题，就调用 query_k8s_network，优先使用告警中的 namespace 和 Service 名称；目标 host/port 明确时，再调用 check_network_connectivity。只有拿到工具证据后再给结论，清楚区分证据、推测和建议。`,
+      content: `请诊断告警 ID ${alertId}。必须先调用 query_alert_details，参数 id=${alertId}，检查 resolutionStatus 和 resolvedAt。若仍 active，结合告警详情、同对象相关告警和需要时的 Pod 日志分析当前故障；若已 resolved，使用 occurredAt 到 resolvedAt 作为时间范围，并按 namespace、objectType、objectName 查询相关告警（includeResolved=true），追溯恢复前的原因。只有拿到工具证据后再给结论，清楚区分证据、推测和建议。`,
     });
     void agent.runAgent();
   }, [agent, alertId, isReady]);

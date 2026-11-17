@@ -6,7 +6,7 @@ import type { ApprovalInput } from "../approval";
 export type SecurityPolicy = {
   riskLevel: "low" | "medium" | "high" | "critical";
   approvalMode: "none" | "required" | "conditional";
-  approvalRole: string;
+  approvalRole?: string;
   defaultAction: "allow" | "deny" | "require_approval";
 };
 
@@ -24,10 +24,9 @@ export type ToolDefinition = {
   outputSchema: Record<string, unknown>;
   annotations: Record<string, boolean>;
   _meta: {
-    serverId: string;
     toolName: string;
     security: SecurityPolicy;
-    approval: ApprovalMetadata;
+    approval: ApprovalMetadata | Record<string, never>;
   };
 };
 
@@ -118,43 +117,49 @@ export function getMcpContract(): Promise<Contract> {
         if (!tool.name || names.has(tool.name))
           throw new Error("api/mcp.yaml 中的 MCP 工具名称缺失或重复");
         names.add(tool.name);
+        const security = tool._meta?.security;
+        const approval = tool._meta?.approval;
         if (
-          tool._meta?.serverId !== "kubernetes-mcp" ||
-          tool._meta.toolName !== tool.name ||
+          tool._meta?.toolName !== tool.name ||
           !["low", "medium", "high", "critical"].includes(
-            tool._meta.security?.riskLevel,
+            security?.riskLevel,
           ) ||
           !["none", "conditional", "required"].includes(
-            tool._meta.security?.approvalMode,
+            security?.approvalMode,
           ) ||
-          typeof tool._meta.security?.approvalRole !== "string" ||
           !["allow", "deny", "require_approval"].includes(
-            tool._meta.security?.defaultAction,
-          ) ||
-          !["fixed", "model_assisted"].includes(
-            tool._meta.approval?.inputPolicy,
-          ) ||
-          tool._meta.approval?.schema_version !== 1 ||
-          !Array.isArray(tool._meta.approval?.allowedInputTypes) ||
-          !tool._meta.approval.allowedInputTypes.every((type) =>
-            ["confirm", "single_select", "multi_select", "text"].includes(type),
-          ) ||
-          !validApprovalInputs(tool._meta.approval?.inputs)
+            security?.defaultAction,
+          ) || !approval || typeof approval !== "object" || Array.isArray(approval)
         )
           throw new Error(
             "MCP 工具缺少有效 _meta.security 或 _meta.approval：" + tool.name,
           );
-        const { security, approval } = tool._meta;
+        if (security.approvalMode === "none") {
+          if (security.approvalRole !== undefined || Object.keys(approval).length !== 0)
+            throw new Error("approvalMode=none 时必须省略 approvalRole 且 approval 必须为空对象：" + tool.name);
+          continue;
+        }
+        const approvalMetadata = approval as ApprovalMetadata;
+        if (
+          !["fixed", "model_assisted"].includes(approvalMetadata.inputPolicy) ||
+          approvalMetadata.schema_version !== 1 ||
+          !Array.isArray(approvalMetadata.allowedInputTypes) ||
+          !approvalMetadata.allowedInputTypes.every((type) =>
+            ["confirm", "single_select", "multi_select", "text"].includes(type),
+          ) ||
+          !validApprovalInputs(approvalMetadata.inputs)
+        )
+          throw new Error("MCP 工具缺少有效审批交互定义：" + tool.name);
         if (
           (security.approvalMode === "required" &&
-            !security.approvalRole.trim()) ||
+            (typeof security.approvalRole !== "string" || !security.approvalRole.trim())) ||
           (security.approvalMode === "conditional" &&
-            !security.approvalRole.trim()) ||
-          (approval.inputPolicy === "model_assisted" &&
-            (new Set(approval.allowedInputTypes).size !==
-              approval.allowedInputTypes.length ||
-              approval.inputs.some(
-                (input) => !approval.allowedInputTypes.includes(input.type),
+            (typeof security.approvalRole !== "string" || !security.approvalRole.trim())) ||
+          (approvalMetadata.inputPolicy === "model_assisted" &&
+            (new Set(approvalMetadata.allowedInputTypes).size !==
+              approvalMetadata.allowedInputTypes.length ||
+              approvalMetadata.inputs.some(
+                (input) => !approvalMetadata.allowedInputTypes.includes(input.type),
               )))
         )
           throw new Error("MCP 工具安全策略与审批定义不兼容：" + tool.name);
@@ -202,7 +207,7 @@ export function getMcpCallers(): McpCaller[] {
       !caller.tools.every((tool) => typeof tool === "string") ||
       caller.tools.some(
         (tool) =>
-          !["ALL", "mcp:read", "mcp:probe", "mcp:restart"].includes(tool),
+          !["ALL", "mcp:read", "mcp:restart"].includes(tool),
       )
     )
       throw new Error("MCP_CALLERS_JSON[" + index + "] 字段无效");

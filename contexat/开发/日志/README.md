@@ -9,6 +9,8 @@
   - http: 服务发起的外部请求
   - access: 服务被外部请求记录
   - exception: 程序异常
+  - schedule: 定时任务日志
+
 - 入站 HTTP 请求使用 `access`，出站请求使用 `http`；两者都记录 method、path、duration_ms 和 status。
 - 日志样例：
 ``` 

@@ -50,16 +50,14 @@ server:
     mode: private-service-bearer
     notes: 首版面向受控服务间调用；生产环境应只向受信任的 LangGraphServer 发放带 mcp:restart 的凭证。此模式不宣称实现完整 MCP OAuth 授权发现；要求 OAuth 的客户端需后续适配。
     credentialSource: 独立 Secret，不复用 Webhook token 或 Kubernetes ServiceAccount token。
-    callerRecord: '{"callerId":"langgraph-server","token":"<32+ 字节随机 bearer token>","tools":["mcp:read","mcp:probe","mcp:restart"]}'
+    callerRecord: '{"callerId":"langgraph-server","token":"<32+ 字节随机 bearer token>","tools":["mcp:read","mcp:restart"]}'
     tokenMatch: MCP bearer token 使用至少 32 个随机字节；客户端发送的 token 与 MCP_CALLERS_JSON 中的原始 token 直接比对，不做摘要。明文凭证不写入日志。
-    principal: 每个凭证映射稳定 callerId 和允许工具；tools 取 mcp:read、mcp:probe、mcp:restart 或 ALL 通配。每次 tools/list 和 tools/call 均校验。
+    principal: 每个凭证映射稳定 callerId 和允许工具；tools 取 mcp:read、mcp:restart 或 ALL 通配。每次 tools/list 和 tools/call 均校验。
     toolScopes:
       query_alerts: mcp:read
       query_promql: mcp:read
       query_alert_details: mcp:read
       query_pod_logs: mcp:read
-      query_k8s_network: mcp:read
-      check_network_connectivity: mcp:probe
       restart_pod: mcp:restart
     discoveryPolicy: tools/list 仅返回调用者被授权且已启用的工具；未授权调用不得执行。
     namespacePolicy: 持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分授权范围。
@@ -70,10 +68,9 @@ server:
     tools/list: 返回可调用的 Tool 定义；首版不分页，不返回 nextCursor。
     tools/call: 校验名称、参数、权限后执行；不调用本服务大模型。
 resultContract:
-  success: result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；result.structuredContent 为同一业务对象；result.isError=false。
+  success: 除 query_pod_logs 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 text/plain 嵌入资源。result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
   failure: 业务执行或授权失败返回 result.isError=true；content 文本与 structuredContent 中的 code、message 保持一致，不泄露凭证或上游原始敏感错误。
   notFound: query_alert_details 的 found=false 是正常业务结果，isError=false。
-  probeFailure: 网络不可达、HTTP 4xx/5xx 或探测超时属于观测结果，保留 reachable/httpOk/timedOut 等字段，isError=false；参数、配置或执行前权限错误才是工具失败。
   httpErrors:
     '400': 无效 JSON/协议头等 HTTP 传输错误。
     '401': 凭证缺失或无效；返回 WWW-Authenticate。
@@ -107,14 +104,7 @@ executionRules:
   query_pod_logs:
   - sinceMinutes 缺省 60，tailLines 缺省 300。
   - 现有日志结果最多保留约 128 KiB，并通过 truncated 标记；namespace/pod/container 格式继续由执行层校验。
-  query_k8s_network:
-  - namespace/service 格式由执行层校验；持有 mcp:read 即视为拥有全部命名空间的读取权限，缺省 namespace 查询全集群。
-  - 沿用现有资源查询与截断标记；API 配置快照不能证明实际数据包已经被阻断。
-  check_network_connectivity:
-  - tcp 必须传 port；http 必须传 url。
-  - HTTP URL 必须是无用户密码的 http/https，长度不超过 2048；host 格式由执行层校验。
-  - 不接受模型提供的 shell；只运行服务端白名单命令。持有 mcp:probe 权限即可探测任意地址；HTTP 探测不跟随重定向。
-  - HTTP 探测会真实发送请求，不能保证幂等；annotations 仅为提示。
+  - 成功响应的 content 返回 EmbeddedResource；资源 URI 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志原文。结构化元数据继续通过 structuredContent 返回。
   restart_pod:
   - 本工具执行 Pod 删除；上游 LangGraphServer 根据 _meta.security 与 _meta.approval 完成审批编排后，使用具备 mcp:restart 权限的身份调用。
   - MCP 服务不保存或验证上游审批记录；服务仍验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
@@ -212,18 +202,12 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    serverId: kubernetes-mcp
     toolName: query_alerts
     security:
       riskLevel: low
       approvalMode: none
-      approvalRole: ops_viewer
       defaultAction: allow
-    approval:
-      schema_version: 1
-      inputPolicy: fixed
-      allowedInputTypes: []
-      inputs: []
+    approval: {}
 - name: query_promql
   description: 使用 PromQL 查询 Prometheus 指标。适用于 CPU、内存、磁盘、网络、Pod/Node 状态等自定义指标查询。模型负责生成 PromQL；默认执行即时查询。需要趋势时设置 rangeMinutes
     和 stepSeconds 执行区间查询。只读查询，不会修改监控数据。
@@ -276,18 +260,12 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    serverId: kubernetes-mcp
     toolName: query_promql
     security:
       riskLevel: low
       approvalMode: none
-      approvalRole: ops_viewer
       defaultAction: allow
-    approval:
-      schema_version: 1
-      inputPolicy: fixed
-      allowedInputTypes: []
-      inputs: []
+    approval: {}
 - name: query_alert_details
   description: 根据告警数据库 ID 查询完整详情和当前恢复状态。对单条告警诊断时必须首先调用此工具。
   inputSchema:
@@ -366,23 +344,12 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    serverId: kubernetes-mcp
     toolName: query_alert_details
     security:
       riskLevel: medium
-      approvalMode: conditional
-      approvalRole: "ops_admin"
-      defaultAction: require_approval
-    approval:
-      schema_version: 1
-      inputPolicy: model_assisted
-      allowedInputTypes:
-        - confirm
-        - single_select
-        - multi_select
-        - text
-      inputs:
-        []
+      approvalMode: none
+      defaultAction: allow
+    approval: {}
 - name: query_pod_logs
   description: 读取指定 Kubernetes Pod 容器的近期日志，用于故障分析。
   inputSchema:
@@ -432,201 +399,12 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    serverId: kubernetes-mcp
     toolName: query_pod_logs
     security:
       riskLevel: medium
-      approvalMode: conditional
-      approvalRole: "ops_admin"
-      defaultAction: require_approval
-    approval:
-      schema_version: 1
-      inputPolicy: model_assisted
-      allowedInputTypes:
-        - confirm
-        - single_select
-        - multi_select
-        - text
-      inputs:
-        []
-- name: query_k8s_network
-  description: 查询 Kubernetes Service、EndpointSlice、NetworkPolicy、Pod 与 Node 网络配置和状态。网络类故障应调用此工具。
-  inputSchema:
-    type: object
-    properties:
-      namespace:
-        type: string
-      service:
-        type: string
-  outputSchema:
-    type: object
-    properties:
-      scope:
-        type: object
-        additionalProperties: true
-      totals:
-        type: object
-        additionalProperties: true
-      services:
-        type: array
-        items:
-          type: object
-          additionalProperties: true
-      networkPolicies:
-        type: array
-        items:
-          type: object
-          additionalProperties: true
-      nodes:
-        type: array
-        items:
-          type: object
-          additionalProperties: true
-      truncated:
-        type: object
-        additionalProperties:
-          type: boolean
-      limitation:
-        type: string
-    required:
-    - scope
-    - totals
-    - services
-    - networkPolicies
-    - nodes
-    - truncated
-    - limitation
-    additionalProperties: true
-  annotations:
-    readOnlyHint: true
-    destructiveHint: false
-    idempotentHint: true
-    openWorldHint: true
-  _meta:
-    serverId: kubernetes-mcp
-    toolName: query_k8s_network
-    security:
-      riskLevel: medium
-      approvalMode: conditional
-      approvalRole: "ops_admin"
-      defaultAction: require_approval
-    approval:
-      schema_version: 1
-      inputPolicy: model_assisted
-      allowedInputTypes:
-        - confirm
-        - single_select
-        - multi_select
-        - text
-      inputs:
-        []
-- name: check_network_connectivity
-  description: 从 OperatorAgentService Pod 主动检测目标的 ICMP、TCP 端口或 HTTP(S) 连通性。命令和参数来自服务端配置白名单，不执行 shell。只代表本服务 Pod
-    的网络视角。
-  inputSchema:
-    type: object
-    properties:
-      type:
-        type: string
-        enum:
-        - icmp
-        - tcp
-        - http
-      host:
-        type: string
-        minLength: 1
-      port:
-        type: integer
-        minimum: 1
-        maximum: 65535
-      url:
-        type: string
-        format: uri
-    required:
-    - type
-    - host
-  outputSchema:
-    type: object
-    properties:
-      probe:
-        type: string
-        enum:
-        - icmp
-        - tcp
-        - http
-      host:
-        type: string
-      port:
-        type:
-        - integer
-        - 'null'
-      url:
-        type:
-        - string
-        - 'null'
-      reachable:
-        type: boolean
-      httpOk:
-        type:
-        - boolean
-        - 'null'
-      httpStatus:
-        type:
-        - integer
-        - 'null'
-      exitCode:
-        type:
-        - integer
-        - 'null'
-      timedOut:
-        type: boolean
-      output:
-        type: string
-      description:
-        type:
-        - string
-        - 'null'
-      executedAt:
-        type: string
-        format: date-time
-      vantagePoint:
-        type: string
-    required:
-    - probe
-    - host
-    - port
-    - url
-    - reachable
-    - httpOk
-    - httpStatus
-    - exitCode
-    - output
-    - executedAt
-    - vantagePoint
-    additionalProperties: true
-  annotations:
-    readOnlyHint: false
-    destructiveHint: false
-    idempotentHint: false
-    openWorldHint: true
-  _meta:
-    serverId: kubernetes-mcp
-    toolName: check_network_connectivity
-    security:
-      riskLevel: medium
-      approvalMode: conditional
-      approvalRole: "ops_admin"
-      defaultAction: require_approval
-    approval:
-      schema_version: 1
-      inputPolicy: model_assisted
-      allowedInputTypes:
-        - confirm
-        - single_select
-        - multi_select
-        - text
-      inputs:
-        []
+      approvalMode: none
+      defaultAction: allow
+    approval: {}
 - name: restart_pod
   description: 删除指定 Pod；该工具目录策略要求每次调用先由上游 LangGraphServer 创建并完成审批。删除通过当前 Pod UID 条件执行，避免误删同名重建对象。
   inputSchema:
@@ -669,7 +447,6 @@ tools:
     idempotentHint: false
     openWorldHint: true
   _meta:
-    serverId: kubernetes-mcp
     toolName: restart_pod
     security:
       riskLevel: high
@@ -759,20 +536,20 @@ examples:
         field: id
         reason: 必须为正整数
 implementationChanges:
-- 服务按本文件的 JSON Schema 发布 7 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
+- 服务按本文件的 JSON Schema 发布 5 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
 - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
 - LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
 - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。
 - 运行 npm run typecheck 和 npm run build 验证类型和 Next.js standalone 路由打包。
 toolSecurityMetadata:
-  serverId: kubernetes-mcp
   location: MCP Tool._meta
   securityFields:
     riskLevel: [low, medium, high, critical]
     approvalMode: [none, required, conditional]
-    approvalRole: required/conditional 时填写处理角色；none 时可为空，且不能用于授权。
+    approvalRole: required/conditional 时填写非空处理角色；none 时必须省略，且不能用于授权。
     defaultAction: [allow, deny, require_approval]
   approvalFields:
+    noneMode: approvalMode=none 时 approval 必须是空对象 {}
     schema_version: 1
     inputPolicy: [fixed, model_assisted]
     allowedInputTypes: [confirm, single_select, multi_select, text]

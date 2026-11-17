@@ -9,8 +9,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getStoredAlertDetails, getStoredAlerts } from "../kubernetes-events";
 import { getPodLogs } from "../kubernetes-logs";
-import { queryKubernetesNetwork } from "../kubernetes-network";
-import { runNetworkProbe } from "../network-probes";
 import {
   query as queryPrometheus,
   queryRange as queryPrometheusRange,
@@ -33,8 +31,6 @@ const TOOL_SCOPES: Record<string, string> = {
   query_promql: "mcp:read",
   query_alert_details: "mcp:read",
   query_pod_logs: "mcp:read",
-  query_k8s_network: "mcp:read",
-  check_network_connectivity: "mcp:probe",
   restart_pod: "mcp:restart",
 };
 
@@ -220,22 +216,6 @@ async function execute(
     }
     case "query_pod_logs":
       return getPodLogs(args as Parameters<typeof getPodLogs>[0]);
-    case "query_k8s_network":
-      return queryKubernetesNetwork(
-        args as Parameters<typeof queryKubernetesNetwork>[0],
-      );
-    case "check_network_connectivity":
-      if (args.type === "tcp" && args.port === undefined)
-        throw Object.assign(new Error("TCP 检测必须提供 port"), {
-          code: "INVALID_PARAMS",
-        });
-      if (args.type === "http" && args.url === undefined)
-        throw Object.assign(new Error("HTTP 检测必须提供 url"), {
-          code: "INVALID_PARAMS",
-        });
-      return runNetworkProbe(args as Parameters<typeof runNetworkProbe>[0], {
-        followRedirects: false,
-      });
     case "restart_pod": {
       const namespace = String(args.namespace);
       const pod = String(args.pod);
@@ -471,6 +451,23 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
             tool: tool.name,
             durationMs: Date.now() - startedAt,
           });
+          if (tool.name === "query_pod_logs") {
+            const podLogs = result as Awaited<ReturnType<typeof getPodLogs>>;
+            return {
+              content: [
+                {
+                  type: "resource" as const,
+                  resource: {
+                    uri: `log:///k8s/${podLogs.namespace}/${podLogs.pod}.log`,
+                    mimeType: "text/plain; charset=utf-8",
+                    text: podLogs.logs,
+                  },
+                },
+              ],
+              structuredContent: podLogs,
+              isError: false,
+            };
+          }
           return {
             content: [{ type: "text", text: serialized }],
             structuredContent: result as Record<string, unknown>,

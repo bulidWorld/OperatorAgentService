@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { businessLog, cleanupLogs, errorLog, withAccessLog, withLogContext } from "./logger";
+import { businessLog, cleanupLogs, errorLog, httpLog, scheduleLog, withAccessLog, withLogContext } from "./logger";
 import { getAlerts, query } from "./prometheus/http";
 
 test("separate logs, stack traces, retention and outbound request results", async () => {
@@ -16,6 +16,11 @@ test("separate logs, stack traces, retention and outbound request results", asyn
   console.log = (...args) => { consoleRecords.push(String(args[0])); };
   try {
     businessLog("test.business");
+    scheduleLog("test.schedule");
+    withLogContext({ logTypes: ["schedule"] }, () => {
+      httpLog("test.schedule.http", { direction: "outbound", method: "GET", path: "/scheduled" });
+      errorLog("test.schedule.error", new Error("scheduled failure"));
+    });
     errorLog("test.error", new Error("failure with stack"));
     globalThis.fetch = async () => new Response(JSON.stringify({ status: "success", data: { alerts: [] } }));
     assert.deepEqual(await withLogContext({ traceId: "test-trace", feature: "Node节点资源监控" }, getAlerts), { alerts: [] });
@@ -34,14 +39,17 @@ test("separate logs, stack traces, retention and outbound request results", asyn
       .filter(name => name.startsWith(`${category}-`))
       .flatMap(name => readFileSync(join(directory, name), "utf8").trim().split("\n").map(line => JSON.parse(line)));
     assert.equal(records("business")[0].event, "test.business");
-    assert.match(records("error")[0].exceptionInfo, /Error: failure with stack\n\s+at/);
-    assert.ok(records("error").every(record => record.log_type === "exception"));
+    assert.equal(records("business")[1].log_type, "schedule");
+    assert.deepEqual(records("http")[0].log_type, ["schedule", "http"]);
+    assert.deepEqual(records("error")[0].log_type, ["schedule", "exception"]);
+    assert.match(records("error")[1].exceptionInfo, /Error: failure with stack\n\s+at/);
     assert.ok(consoleRecords.length > 4);
     for (const raw of consoleRecords) {
       const record = JSON.parse(raw);
       assert.ok(record.timestamp);
       assert.ok(["DEBUG", "INFO", "WARN", "ERROR"].includes(record.level));
-      assert.ok(["business", "http", "access", "exception"].includes(record.log_type));
+      const logTypes = Array.isArray(record.log_type) ? record.log_type : [record.log_type];
+      assert.ok(logTypes.every((logType: string) => ["business", "http", "access", "exception", "schedule"].includes(logType)));
     }
     const completed = records("http").filter(record => record.event === "request.completed");
     const started = records("http").filter(record => record.event === "request.started");

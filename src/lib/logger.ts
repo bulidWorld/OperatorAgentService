@@ -36,6 +36,7 @@ function describe(event: string, fields: Record<string, unknown>): string {
 
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 type Category = "business" | "http" | "error";
+type LogType = "business" | "http" | "access" | "exception" | "schedule";
 const HTTP_DETAIL_FIELDS = new Set(["requestParams", "responseResult"]);
 const HTTP_DETAIL_MAX_CHARS = 5000;
 const TRUNCATED_SUFFIX = "...[已截断]";
@@ -108,22 +109,30 @@ function write(category: Category, event: string, fields: Record<string, unknown
   const requestedLevel = String(inferredLevel).toUpperCase();
   const level = category === "error" ? "ERROR"
     : ["DEBUG", "WARN", "ERROR"].includes(requestedLevel) ? requestedLevel : "INFO";
-  const logType = category === "error" ? "exception"
+  const baseLogType: LogType = category === "error" ? "exception"
     : category === "http" && fields.direction === "inbound" ? "access"
     : category;
+  const contextualLogTypes = Array.isArray(fields.logTypes)
+    ? fields.logTypes.filter((value): value is LogType => value === "schedule")
+    : [];
+  const logTypes = [...new Set<LogType>([
+    ...contextualLogTypes,
+    ...(baseLogType === "business" && contextualLogTypes.includes("schedule") ? [] : [baseLogType]),
+  ])];
+  const logType: LogType | LogType[] = logTypes.length === 1 ? logTypes[0] : logTypes;
   const path = typeof fields.path === "string"
     ? fields.path
     : typeof fields.url === "string"
       ? (() => { try { return new URL(fields.url).pathname; } catch { return fields.url; } })()
       : null;
-  const { stack, traceId, durationMs, ...recordFields } = fields;
+  const { stack, traceId, durationMs, logTypes: _logTypes, ...recordFields } = fields;
   const structuredRecord = JSON.stringify({
     ...recordFields,
     timestamp,
     level,
     log_type: logType,
     trace_id: traceId ?? fields.trace_id,
-    ...(logType === "http" || logType === "access" ? {
+    ...(baseLogType === "http" || baseLogType === "access" ? {
       method: fields.method ?? null,
       path,
       status: fields.status ?? null,
@@ -177,6 +186,11 @@ function writeInternalException(event: string, error: unknown) {
  * @returns 无返回值。
  */
 export const businessLog = (event: string, fields: Record<string, unknown> = {}) => write("business", event, fields);
+/** 写入定时任务日志；在定时任务上下文中，HTTP 和异常类型会与 schedule 组合记录。 */
+export const scheduleLog = (event: string, fields: Record<string, unknown> = {}) => write("business", event, {
+  ...fields,
+  logTypes: ["schedule"],
+});
 /** 写入 HTTP 入站或出站日志。
  * @param event HTTP 日志事件标识。
  * @param fields 请求、响应及耗时字段。

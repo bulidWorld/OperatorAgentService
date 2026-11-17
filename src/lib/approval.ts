@@ -22,7 +22,7 @@ export type ApprovalRequest = {
   type: "approval_request";
   schema_version: 1;
   request_id: string;
-  action: "business_fix" | "restart_container";
+  action: string;
   title: string;
   rationale: string;
   change_plan: string;
@@ -45,7 +45,7 @@ export function parseApprovalRequest(value: unknown): ApprovalRequest | null {
   if (!isRecord(value) || value.type !== "approval_request" || value.schema_version !== 1) return null;
   if (
     typeof value.request_id !== "string" || !value.request_id.trim() ||
-    !["business_fix", "restart_container"].includes(String(value.action)) ||
+    typeof value.action !== "string" || !value.action.trim() ||
     typeof value.title !== "string" || !value.title.trim() ||
     typeof value.rationale !== "string" || typeof value.change_plan !== "string" ||
     !Array.isArray(value.evidence) || !Array.isArray(value.inputs)
