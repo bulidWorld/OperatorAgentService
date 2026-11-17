@@ -1,8 +1,8 @@
 "use client";
 
 import { CopilotChat, useAgent } from "@copilotkit/react-core/v2";
-import { useCallback, useEffect, useRef } from "react";
-import { Check, LoaderCircle, Wrench, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, LoaderCircle, RotateCcw, Wrench, X } from "lucide-react";
 
 type ToolCall = {
   id: string;
@@ -15,6 +15,32 @@ type ChatMessage = {
   toolCallId?: string;
   content?: unknown;
 };
+
+type DiagnosticRunError = {
+  code?: string;
+  message: string;
+};
+
+function toDiagnosticRunError(value: unknown): DiagnosticRunError {
+  const objects: Record<string, unknown>[] = [];
+  let current = value;
+  for (let depth = 0; depth < 4; depth++) {
+    if (!current || typeof current !== "object") break;
+    const object = current as Record<string, unknown>;
+    objects.push(object);
+    current = object.error ?? object.cause ?? object.data;
+  }
+  const code = objects.find((object) => typeof object.code === "string")?.code as string | undefined;
+  if (code === "INCOMPLETE_STREAM")
+    return {
+      code,
+      message: "连接提前中断，诊断结果可能不完整。请重试继续诊断。",
+    };
+  return {
+    code,
+    message: "诊断暂时失败，请稍后重试。",
+  };
+}
 
 function formatToolValue(value: unknown, limit = 1800) {
   if (typeof value === "string") return value.length > limit ? `${value.slice(0, limit)}…` : value;
@@ -87,6 +113,25 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
   });
   const chatMessages = (agent.messages ?? []) as ChatMessage[];
   const started = useRef(false);
+  const [runError, setRunError] = useState<DiagnosticRunError>();
+
+  const runAgent = useCallback(() => {
+    setRunError(undefined);
+    void agent.runAgent().catch((error: unknown) => {
+      setRunError(toDiagnosticRunError(error));
+    });
+  }, [agent]);
+
+  useEffect(() => {
+    const subscription = agent.subscribe({
+      onRunInitialized: () => setRunError(undefined),
+      onRunErrorEvent: ({ event }) =>
+        setRunError(toDiagnosticRunError(event)),
+      onRunFailed: ({ error }) =>
+        setRunError(toDiagnosticRunError(error)),
+    });
+    return () => subscription.unsubscribe();
+  }, [agent]);
 
   useEffect(() => {
     if (!isReady || started.current) return;
@@ -94,16 +139,26 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
     agent.addMessage({
       id: `diagnose-${alertId}`,
       role: "user",
-      content: `请诊断告警 ID ${alertId}。必须先调用 query_alert_details，参数 id=${alertId}，检查 resolutionStatus 和 resolvedAt。若仍 active，结合告警详情、同对象相关告警和需要时的 Pod 日志分析当前故障；若已 resolved，使用 occurredAt 到 resolvedAt 作为时间范围，并按 namespace、objectType、objectName 查询相关告警（includeResolved=true），追溯恢复前的原因。只有拿到工具证据后再给结论，清楚区分证据、推测和建议。`,
+      content: `请诊断告警 ID ${alertId}。`,
     });
-    void agent.runAgent();
-  }, [agent, alertId, isReady]);
+    runAgent();
+  }, [agent, alertId, isReady, runAgent]);
 
   if (!isReady) return null;
 
   return (
     <div className="diagnostic-chat-content">
       <ToolActivity messages={chatMessages} isRunning={agent.isRunning} />
+      {runError && (
+        <div className="diagnostic-run-error" role="alert">
+          <AlertTriangle size={16} />
+          <span>{runError.message}</span>
+          <button type="button" onClick={runAgent} disabled={agent.isRunning}>
+            <RotateCcw size={14} />
+            重试
+          </button>
+        </div>
+      )}
       <CopilotChat
         agentId={agentId}
         threadId={threadId}
