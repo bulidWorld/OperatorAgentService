@@ -4,11 +4,11 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { businessLog, cleanupLogs, errorLog, withAccessLog, withLogContext } from "./logger";
-import { getAlerts } from "./prometheus/http";
+import { getAlerts, query } from "./prometheus/http";
 
 test("separate logs, stack traces, retention and outbound request results", async () => {
   const directory = mkdtempSync(join(tmpdir(), "kube-logs-"));
-  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, fetch: globalThis.fetch, error: console.error, info: console.log };
+  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, payload: process.env.HTTP_LOG_INCLUDE_PAYLOAD, fetch: globalThis.fetch, error: console.error, info: console.log };
   process.env.LOG_DIR = directory;
   process.env.PROMETHEUS_URL = "http://localhost:9090";
   const consoleRecords: string[] = [];
@@ -52,6 +52,8 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     assert.match(completed[0].message, /Node节点资源监控：HTTP请求成功/);
     assert.equal(completed[0].operation, "Prometheus告警查询");
     assert.equal(completed[0].resultSummary.itemCount, 0);
+    assert.equal(completed[0].requestParams, undefined);
+    assert.equal(completed[0].responseResult, undefined);
     assert.match(completed[2].message, /connection failed/);
     const httpText = readFileSync(join(directory, readdirSync(directory).find(name => name.startsWith("http-"))!), "utf8");
     assert.doesNotMatch(httpText, /\[HTTP请求日志\]/);
@@ -83,9 +85,32 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     assert.ok(!readdirSync(directory).includes("business-2020-01-01.log"));
     assert.ok(readdirSync(directory).includes("keep.txt"));
     assert.ok(records("business").length > 0);
+
+    process.env.HTTP_LOG_INCLUDE_PAYLOAD = "true";
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: "success", data: { alerts: [{ state: "firing" }] } }));
+    await getAlerts();
+    const detailed = records("http").filter(record => record.event === "request.completed").at(-1);
+    assert.deepEqual(detailed.requestParams, {});
+    assert.deepEqual(detailed.responseResult, { status: "success", data: { alerts: [{ state: "firing" }] } });
+
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      status: "success",
+      data: { resultType: "vector", result: [], padding: "r".repeat(6000) },
+    }));
+    await query("q".repeat(6000));
+    const detailedRecords = records("http");
+    const truncatedRequest = detailedRecords.filter(record => record.event === "request.started").at(-1).requestParams;
+    const truncatedResponse = detailedRecords.filter(record => record.event === "request.completed").at(-1).responseResult;
+    assert.equal(typeof truncatedRequest, "string");
+    assert.equal(typeof truncatedResponse, "string");
+    assert.equal(truncatedRequest.length, 5000);
+    assert.equal(truncatedResponse.length, 5000);
+    assert.match(truncatedRequest, /\.\.\.\[已截断\]$/);
+    assert.match(truncatedResponse, /\.\.\.\[已截断\]$/);
   } finally {
     if (previous.log === undefined) delete process.env.LOG_DIR; else process.env.LOG_DIR = previous.log;
     if (previous.url === undefined) delete process.env.PROMETHEUS_URL; else process.env.PROMETHEUS_URL = previous.url;
+    if (previous.payload === undefined) delete process.env.HTTP_LOG_INCLUDE_PAYLOAD; else process.env.HTTP_LOG_INCLUDE_PAYLOAD = previous.payload;
     globalThis.fetch = previous.fetch;
     console.error = previous.error;
     console.log = previous.info;

@@ -56,6 +56,7 @@ async function request<T>(
   let result = "error";
   let errorMessage: string | undefined;
   let resultSummary: Record<string, unknown> | undefined;
+  let responseResult: unknown;
   try {
     const response = await fetch(url, {
       cache: "no-store",
@@ -67,6 +68,7 @@ async function request<T>(
     status = response.status;
     if (!response.ok) throw new Error(`Prometheus HTTP ${response.status}`);
     const body = await response.json();
+    responseResult = body;
     if (body.status !== "success")
       throw new Error(body.error || "Prometheus 查询失败");
     const data = body.data;
@@ -86,7 +88,7 @@ async function request<T>(
   } finally {
     httpLog("request.completed", {
       ...context, returnedAt: new Date().toISOString(),
-      durationMs: Math.round(performance.now() - started), status: status ?? null, result, resultSummary, errorMessage,
+      durationMs: Math.round(performance.now() - started), status: status ?? null, result, resultSummary, responseResult, errorMessage,
     });
   }
 }

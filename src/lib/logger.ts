@@ -36,6 +36,9 @@ function describe(event: string, fields: Record<string, unknown>): string {
 
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 type Category = "business" | "http" | "error";
+const HTTP_DETAIL_FIELDS = new Set(["requestParams", "responseResult"]);
+const HTTP_DETAIL_MAX_CHARS = 5000;
+const TRUNCATED_SUFFIX = "...[已截断]";
 let lastCleanup = 0;
 let activeDirectory = "";
 let cleanupTimer: NodeJS.Timeout | undefined;
@@ -65,6 +68,13 @@ export function cleanupLogs(directory = logDirectory(), now = Date.now()) {
   }
 }
 
+/** 将 HTTP 参数或响应限制在固定字符数内，超限内容转换为带标记的 JSON 文本。 */
+function limitHttpDetail(value: unknown): unknown {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined || serialized.length <= HTTP_DETAIL_MAX_CHARS) return value;
+  return `${serialized.slice(0, HTTP_DETAIL_MAX_CHARS - TRUNCATED_SUFFIX.length)}${TRUNCATED_SUFFIX}`;
+}
+
 /** 格式化并写入一条业务、HTTP 或错误日志。
  * @param category 日志分类，决定文件名和日志级别。
  * @param event 日志事件标识。
@@ -74,6 +84,18 @@ export function cleanupLogs(directory = logDirectory(), now = Date.now()) {
 function write(category: Category, event: string, fields: Record<string, unknown>) {
   const now = new Date();
   fields = { ...logContext.getStore(), ...fields };
+  if (process.env.HTTP_LOG_INCLUDE_PAYLOAD !== "true") {
+    fields = Object.fromEntries(
+      Object.entries(fields).filter(([key]) => !HTTP_DETAIL_FIELDS.has(key)),
+    );
+  } else {
+    fields = Object.fromEntries(
+      Object.entries(fields).map(([key, value]) => [
+        key,
+        HTTP_DETAIL_FIELDS.has(key) ? limitHttpDetail(value) : value,
+      ]),
+    );
+  }
   const description = describe(event, fields).replace(/[\r\n]/g, " ");
   const timestamp = now.toISOString();
   const inferredLevel = fields.level ?? (
