@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { CopilotChat, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import type { ActivityMessage, Interrupt } from "@ag-ui/client";
 import { Activity, Bot, Check, CircleAlert, Clock3, FileText, LoaderCircle, ShieldCheck, Wrench, X } from "lucide-react";
@@ -14,30 +14,37 @@ import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, typ
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [activity, setActivity] = useState<ActivityMessage | null>(null);
   const [sync, setSync] = useState<ActivitySyncState>("ready");
+  const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
 
   useEffect(() => {
     if (!isReady) return;
     const subscription = agent.subscribe({
-      onActivitySnapshotEvent: ({ event }) => {
+      onActivitySnapshotEvent: ({ event, activityMessage }) => {
         const result = reduceActivitySnapshot(null, event);
         if (event.activityType === "agent_run") {
-          setActivity(result.activity);
+          const next = activityMessage ?? result.activity;
+          setActivity(next);
           setSync(result.sync);
+          const parsed = parseAgentRunActivity(next?.content);
+          if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync: result.sync } }));
         }
       },
-      onActivityDeltaEvent: ({ event }) => {
+      onActivityDeltaEvent: ({ event, activityMessage }) => {
         if (event.activityType !== "agent_run") return;
         setActivity((current) => {
           const result = reduceActivityDelta(current, event, sync);
           setSync(result.sync);
-          return result.activity;
+          const next = activityMessage ?? result.activity;
+          const parsed = parseAgentRunActivity(next?.content);
+          if (parsed) setActivities((currentActivities) => ({ ...currentActivities, [parsed.run.runId]: { activity: parsed, sync: result.sync } }));
+          return next;
         });
       },
     });
     return () => subscription.unsubscribe();
   }, [agent, isReady, sync]);
 
-  return { activity: parseAgentRunActivity(activity?.content), sync };
+  return { activity: parseAgentRunActivity(activity?.content), sync, activities };
 }
 
 const statusLabels: Record<string, string> = {
@@ -87,16 +94,17 @@ function EventDetails({ item }: { item: AgentRunEvent }) {
 
 function ActivityTimeline({ activity, sync }: { activity: AgentRunActivity | null; sync: ActivitySyncState }) {
   if (!activity) {
-    return <section className="activity-timeline activity-timeline-empty"><div className="activity-timeline-heading"><div><span className="activity-kicker">LIVE EXECUTION</span><h3>执行时间线</h3></div><span className="activity-live-indicator">等待任务</span></div><div className="activity-empty-state"><span><Clock3 size={18} /></span><p>发起一次故障分析后，模型与工具的执行过程会显示在这里。</p></div></section>;
+    return <div className="activity-empty-state compact"><span><Clock3 size={17} /></span><p>执行时间线暂不可用。</p></div>;
   }
   const sortedEvents = [...activity.events].sort((a, b) => a.sequence - b.sequence);
   const runStatus = statusLabels[activity.run.status] ?? activity.run.status;
   return (
     <section className="activity-timeline" aria-live="polite">
-      <div className="activity-timeline-heading">
+      <details className="activity-timeline-fold" open={activity.run.status === "running" || activity.run.status === "awaiting_approval"}>
+      <summary className="activity-timeline-heading">
         <div><span className="activity-kicker">LIVE EXECUTION</span><h3>执行时间线 <span className="activity-event-count">{sortedEvents.length} 步</span></h3></div>
         <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
-      </div>
+      </summary>
       {sync === "needs_snapshot" && <div className="activity-sync-notice"><FileText size={14} />活动增量暂不可用，等待完整快照同步。</div>}
       <div className="activity-run-meta"><span><b>Run</b><code>{activity.run.runId}</code></span><span><b>开始于</b>{formatActivityTime(activity.run.startedAt)}</span></div>
       {activity.run.error && <p className="activity-run-error">{activity.run.error}</p>}
@@ -116,6 +124,7 @@ function ActivityTimeline({ activity, sync }: { activity: AgentRunActivity | nul
           ))}
         </ol>
       )}
+      </details>
     </section>
   );
 }
@@ -276,7 +285,7 @@ function ApprovalCard({
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activity, sync } = useAgentActivity(agent, isReady);
+  const { activities } = useAgentActivity(agent, isReady);
   const approval = useInterrupt({
     renderInChat: false,
     enabled: ({ name }) => name === "on_interrupt",
@@ -311,8 +320,21 @@ export default function FaultAgent() {
         </div>
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
-      <ActivityTimeline activity={activity} sync={sync} />
-      <CopilotChat labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }} />
+      <CopilotChat
+        labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
+        messageView={{ children: ({ messageElements, messages }) => <>
+          {messageElements.map((element, index) => {
+            const message = messages[index];
+            if (message?.role !== "assistant") return element;
+            const runIndex = messages.slice(0, index + 1).filter((item) => item.role === "user").length;
+            const entry = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt))[runIndex - 1] ?? null;
+            return <div className="fault-agent-reply" key={message.id}>
+              {entry && <ActivityTimeline activity={entry.activity} sync={entry.sync} />}
+              <section className="fault-agent-conclusion"><span className="activity-kicker">FINAL CONCLUSION</span>{element}</section>
+            </div>;
+          })}
+        </> }}
+      />
       {approval}
     </section>
   );

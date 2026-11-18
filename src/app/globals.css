@@ -1215,6 +1215,21 @@ footer > span:first-child {
 .fault-agent { margin-bottom: 22px; }
 .fault-agent > p { margin: 0 20px 14px; color: #65708a; font-size: 13px; }
 .fault-agent [data-copilotkit] { min-height: 400px; }
+.fault-agent-reply { display: grid; gap: 10px; width: min(100%, 860px); }
+.fault-agent-reply .activity-timeline { margin: 0; }
+.fault-agent-reply .activity-timeline-heading { cursor: pointer; list-style: none; }
+.fault-agent-reply .activity-timeline-heading::-webkit-details-marker { display: none; }
+.fault-agent-reply .activity-timeline-heading::after { content: "⌄"; margin-left: auto; color: #8291a0; font-size: 16px; transition: transform .18s ease; }
+.fault-agent-reply .activity-timeline-fold[open] > .activity-timeline-heading::after { transform: rotate(180deg); }
+.fault-agent-conclusion { min-width: 0; padding: 12px 14px 8px; border: 1px solid #e5ebf1; border-radius: 12px; background: #fff; }
+.fault-agent-conclusion > .activity-kicker { display: block; margin-bottom: 7px; }
+.fault-agent-conclusion [data-copilotkit] { min-height: 0; }
+.fault-agent-conclusion [data-testid="copilot-chat-assistant-message"] { padding: 0; }
+.fault-agent-reply .activity-timeline-fold:not([open]) .activity-run-meta,
+.fault-agent-reply .activity-timeline-fold:not([open]) .activity-event-list,
+.fault-agent-reply .activity-timeline-fold:not([open]) .activity-sync-notice,
+.fault-agent-reply .activity-timeline-fold:not([open]) .activity-run-error,
+.fault-agent-reply .activity-timeline-fold:not([open]) .activity-empty-state { display: none; }
 .pod-restart-approval { margin: 12px 20px 20px; padding: 16px; border: 1px solid #e4b850; border-radius: 10px; background: #fffaf0; color: #29364a; }
 .pod-restart-approvals { display: grid; gap: 10px; }
 .pod-restart-approval strong { display: block; margin-bottom: 8px; }
