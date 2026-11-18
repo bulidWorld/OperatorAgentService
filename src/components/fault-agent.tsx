@@ -323,16 +323,29 @@ export default function FaultAgent() {
       <CopilotChat
         labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
         messageView={{ children: ({ messageElements, messages }) => <>
-          {messageElements.map((element, index) => {
-            const message = messages[index];
-            if (message?.role !== "assistant") return element;
-            const runIndex = messages.slice(0, index + 1).filter((item) => item.role === "user").length;
-            const entry = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt))[runIndex - 1] ?? null;
-            return <div className="fault-agent-reply" key={message.id}>
-              {entry && <ActivityTimeline activity={entry.activity} sync={entry.sync} />}
-              <section className="fault-agent-conclusion"><span className="activity-kicker">FINAL CONCLUSION</span>{element}</section>
-            </div>;
-          })}
+          {(() => {
+            const orderedActivities = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt));
+            const renderedRuns = new Set<string>();
+            return messageElements.map((element, index) => {
+              const message = messages[index];
+              if (message?.role !== "assistant") return element;
+
+              // Tool-call assistant messages are intermediate steps. Render the timeline
+              // only once, beside the final assistant response for this user turn.
+              const hasLaterAssistant = messages.slice(index + 1).some((item) => item.role === "assistant");
+              if (hasLaterAssistant) return element;
+
+              const runIndex = messages.slice(0, index + 1).filter((item) => item.role === "user").length;
+              const entry = orderedActivities[runIndex - 1] ?? null;
+              const runId = entry?.activity.run.runId;
+              const showTimeline = entry && runId && !renderedRuns.has(runId);
+              if (showTimeline) renderedRuns.add(runId);
+              return <div className="fault-agent-reply" key={message.id}>
+                {showTimeline && <ActivityTimeline activity={entry.activity} sync={entry.sync} />}
+                <section className="fault-agent-conclusion"><span className="activity-kicker">FINAL CONCLUSION</span>{element}</section>
+              </div>;
+            });
+          })()}
         </> }}
       />
       {approval}
