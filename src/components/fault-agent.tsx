@@ -14,11 +14,28 @@ import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, typ
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [activity, setActivity] = useState<ActivityMessage | null>(null);
   const [sync, setSync] = useState<ActivitySyncState>("ready");
+  const [runUsers, setRunUsers] = useState<Record<string, string>>({});
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
 
   useEffect(() => {
     if (!isReady) return;
     const subscription = agent.subscribe({
+      onRunStartedEvent: ({ event, messages }) => {
+        const user = [...messages].reverse().find((message) => message.role === "user");
+        if (user) setRunUsers((current) => ({ ...current, [event.runId]: user.id }));
+      },
+      onMessagesSnapshotEvent: ({ event }) => {
+        let userId: string | undefined;
+        for (const message of event.messages) {
+          if (message.role === "user") userId = message.id;
+          if (message.role !== "activity" || !userId) continue;
+          const parsed = parseAgentRunActivity(message.content);
+          if (!parsed) continue;
+          const owner = userId;
+          setRunUsers((current) => ({ ...current, [parsed.run.runId]: owner }));
+          setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync: "ready" } }));
+        }
+      },
       onActivitySnapshotEvent: ({ event, activityMessage }) => {
         const result = reduceActivitySnapshot(null, event);
         if (event.activityType === "agent_run") {
@@ -44,7 +61,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     return () => subscription.unsubscribe();
   }, [agent, isReady, sync]);
 
-  return { activity: parseAgentRunActivity(activity?.content), sync, activities };
+  return { activity: parseAgentRunActivity(activity?.content), sync, activities, runUsers };
 }
 
 const statusLabels: Record<string, string> = {
@@ -285,7 +302,7 @@ function ApprovalCard({
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities } = useAgentActivity(agent, isReady);
+  const { activities, runUsers } = useAgentActivity(agent, isReady);
   const approval = useInterrupt({
     renderInChat: false,
     enabled: ({ name }) => name === "on_interrupt",
@@ -322,31 +339,34 @@ export default function FaultAgent() {
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
       <CopilotChat
         labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
-        messageView={{ children: ({ messageElements, messages }) => <>
-          {(() => {
-            const orderedActivities = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt));
-            const renderedRuns = new Set<string>();
-            return messageElements.map((element, index) => {
-              const message = messages[index];
-              if (message?.role !== "assistant") return element;
-
-              // Tool-call assistant messages are intermediate steps. Render the timeline
-              // only once, beside the final assistant response for this user turn.
-              const hasLaterAssistant = messages.slice(index + 1).some((item) => item.role === "assistant");
-              if (hasLaterAssistant) return element;
-
-              const runIndex = messages.slice(0, index + 1).filter((item) => item.role === "user").length;
-              const entry = orderedActivities[runIndex - 1] ?? null;
-              const runId = entry?.activity.run.runId;
-              const showTimeline = entry && runId && !renderedRuns.has(runId);
-              if (showTimeline) renderedRuns.add(runId);
-              return <div className="fault-agent-reply" key={message.id}>
-                {showTimeline && <ActivityTimeline activity={entry.activity} sync={entry.sync} />}
-                <section className="fault-agent-conclusion"><span className="activity-kicker">FINAL CONCLUSION</span>{element}</section>
-              </div>;
+        messageView={{ children: ({ messageElements, messages }) => {
+          const ordered = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt));
+          const renderedRuns = new Set<string>();
+          return <>{messageElements.map((element, index) => {
+            const message = messages[index];
+            if (message?.role !== "user") return null;
+            const nextUser = messages.findIndex((item, position) => position > index && item.role === "user");
+            const end = nextUser < 0 ? messages.length : nextUser;
+            const replies = messages.slice(index + 1, end);
+            const userIndex = messages.slice(0, index).filter((item) => item.role === "user").length;
+            const entries = ordered.filter((entry, position) => {
+              const runId = entry.activity.run.runId;
+              return !renderedRuns.has(runId) && (runUsers[runId] ? runUsers[runId] === message.id : position === userIndex);
             });
-          })()}
-        </> }}
+            entries.forEach((entry) => renderedRuns.add(entry.activity.run.runId));
+            return <div className="fault-agent-turn" key={message.id}>
+              {element}
+              <div className="fault-agent-reply">
+                {entries.map((entry) => <ActivityTimeline key={entry.activity.run.runId} activity={entry.activity} sync={entry.sync} />)}
+                {replies.map((reply, offset) => reply.role === "assistant" && reply.content ? (
+                  <section className="fault-agent-conclusion" key={reply.id}>
+                    <span className="activity-kicker">FINAL CONCLUSION</span>{messageElements[index + 1 + offset]}
+                  </section>
+                ) : null)}
+              </div>
+            </div>;
+          })}</>;
+        } }}
       />
       {approval}
     </section>

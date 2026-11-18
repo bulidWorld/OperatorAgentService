@@ -1215,6 +1215,9 @@ footer > span:first-child {
 .fault-agent { margin-bottom: 22px; }
 .fault-agent > p { margin: 0 20px 14px; color: #65708a; font-size: 13px; }
 .fault-agent [data-copilotkit] { min-height: 400px; }
+.fault-agent .copilotKitMessages { justify-content: flex-start; }
+.fault-agent .copilotKitMessagesContainer { gap: 6px; }
+.fault-agent-turn { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .fault-agent-reply { display: grid; gap: 10px; width: min(100%, 860px); }
 .fault-agent-reply .activity-timeline { margin: 0; }
 .fault-agent-reply .activity-timeline-heading { cursor: pointer; list-style: none; }
