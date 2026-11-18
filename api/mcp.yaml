@@ -398,7 +398,7 @@ tools:
         type: boolean
       errorMessage:
         type: string
-        description: 日志读取失败时的具体原因；成功时省略。
+        description: 工具执行失败时的具体原因；成功时省略。
     required:
     - namespace
     - pod
