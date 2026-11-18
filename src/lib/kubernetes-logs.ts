@@ -51,7 +51,16 @@ export async function getPodLogs(input: {
       response.on("end", () => {
         const body = Buffer.concat(chunks).toString("utf8");
         if (status < 200 || status >= 300) {
-          const error = new Error(`Kubernetes 日志 API 返回 HTTP ${status}: ${body.slice(0, 500)}`);
+          const detail = parseKubernetesError(body);
+          const error = Object.assign(
+            new Error(detail ?? `Kubernetes 日志 API 返回 HTTP ${status}`),
+            {
+              code:
+                status === 404 || detail?.startsWith("Pod 或容器不存在：")
+                  ? "POD_NOT_FOUND"
+                  : "UPSTREAM_ERROR",
+            },
+          );
           finishLog(status, error);
           return reject(error);
         }
@@ -70,4 +79,18 @@ export async function getPodLogs(input: {
     });
     req.end();
   });
+}
+
+/** Extract a readable Kubernetes API error without echoing arbitrary response bodies. */
+function parseKubernetesError(body: string) {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const status = parsed as { reason?: unknown; message?: unknown };
+    if (typeof status.message !== "string") return undefined;
+    if (status.reason === "NotFound") return `Pod 或容器不存在：${status.message}`;
+    return `Kubernetes 日志查询失败：${status.message}`;
+  } catch {
+    return undefined;
+  }
 }

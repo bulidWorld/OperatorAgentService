@@ -58,6 +58,7 @@ server:
       query_promql: mcp:read
       query_alert_details: mcp:read
       query_pod_logs: mcp:read
+      query_pods: mcp:read
       restart_pod: mcp:restart
     discoveryPolicy: tools/list 仅返回调用者被授权且已启用的工具；未授权调用不得执行。
     namespacePolicy: 持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分授权范围。
@@ -69,9 +70,10 @@ server:
     tools/call: 校验名称、参数、权限后执行；不调用本服务大模型。
 resultContract:
   success: 除 query_pod_logs 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 MCP EmbeddedResource 内容块，resource.type=text，resource.resource.uri 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志正文。result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
-  failure: 业务执行或授权失败返回 result.isError=true；content 文本与 structuredContent 中的 code、message 保持一致，不泄露凭证或上游原始敏感错误。
+  failure: 工具执行、工具授权或上游业务失败仍作为 JSON-RPC 成功响应返回（result.isError=false）；content 文本与 structuredContent 中的 code、errorMessage 保持一致。errorMessage 说明具体失败，敏感信息必须脱敏。
   notFound: query_alert_details 的 found=false 是正常业务结果，isError=false。
   httpErrors:
+    policy: MCP 工具业务错误通过工具结果返回，HTTP 尽量使用 200；以下状态仅用于 MCP 传输、入口保护或客户端必须处理的协议错误。
     '400': 无效 JSON/协议头等 HTTP 传输错误。
     '401': 凭证缺失或无效；返回 WWW-Authenticate。
     '403': Origin 或入口访问策略拒绝。
@@ -82,7 +84,7 @@ resultContract:
     '-32700': Parse error
     '-32600': Invalid Request
     '-32601': Method not found
-    '-32602': Invalid params：JSON-RPC 参数结构无效。工具参数校验错误通过 isError=true 返回。
+    '-32602': Invalid params：JSON-RPC 参数结构无效；工具 inputSchema 校验错误通过工具结果的 errorMessage 返回。
     '-32603': Internal error：协议处理内部错误。
   toolErrorCodes:
   - FORBIDDEN
@@ -92,6 +94,7 @@ resultContract:
   - TIMEOUT
   - RESULT_TOO_LARGE
   - POD_CHANGED
+  - POD_NOT_FOUND
 executionRules:
   query_alerts:
   - 保留当前内部每页 500 条、遍历分页并返回 total 和 alerts 的行为；调用参数暂不增加 limit/cursor。
@@ -100,11 +103,14 @@ executionRules:
   query_promql:
   - promql 在执行前 trim；未传 rangeMinutes 为即时查询，单传 stepSeconds 为参数错误。
   - 区间以服务端当前时间为终点，stepSeconds 缺省 60；ceil(rangeMinutes*60/stepSeconds)>3000 时拒绝。
-  - JSON Schema 范围约束之外的跨字段校验由执行层保留。
+  - JSON Schema 范围约束之外的跨字段校验由执行层保留；参数问题通过工具结果 errorMessage 返回。
   query_pod_logs:
   - sinceMinutes 缺省 60，tailLines 缺省 300。
   - 现有日志结果最多保留约 128 KiB，并通过 truncated 标记；namespace/pod/container 格式继续由执行层校验。
   - 成功响应的 content 返回 EmbeddedResource；资源 URI 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志原文。结构化元数据继续通过 structuredContent 返回。
+  - Pod 或容器不存在及其他日志查询失败通过结构化 errorMessage 返回；失败响应不返回日志资源内容。
+  query_pods:
+  - 查询所有命名空间的 Pod；containerName 省略或为空时返回全部 Pod，否则按 Pod 中任一容器名称不区分大小写的子串匹配过滤。
   restart_pod:
   - 本工具执行 Pod 删除；上游 LangGraphServer 根据 _meta.security 与 _meta.approval 完成审批编排后，使用具备 mcp:restart 权限的身份调用。
   - MCP 服务不保存或验证上游审批记录；服务仍验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
@@ -377,6 +383,9 @@ tools:
   outputSchema:
     type: object
     properties:
+      errorMessage:
+        type: string
+        description: 工具执行失败时的具体原因；成功时省略。
       namespace:
         type: string
       pod:
@@ -387,6 +396,9 @@ tools:
         type: string
       truncated:
         type: boolean
+      errorMessage:
+        type: string
+        description: 日志读取失败时的具体原因；成功时省略。
     required:
     - namespace
     - pod
@@ -402,6 +414,47 @@ tools:
     toolName: query_pod_logs
     security:
       riskLevel: medium
+      approvalMode: none
+      defaultAction: allow
+    approval: {}
+- name: query_pods
+  description: 查询集群中所有命名空间的 Pod；可按容器名称进行模糊匹配。
+  inputSchema:
+    type: object
+    properties:
+      containerName:
+        type: string
+        description: 可选容器名称关键词，按包含匹配，忽略大小写。
+    additionalProperties: false
+  outputSchema:
+    type: object
+    properties:
+      total:
+        type: integer
+      pods:
+        type: array
+        items:
+          type: object
+          properties:
+            namespace: { type: string }
+            name: { type: string }
+            phase: { type: string }
+            containers:
+              type: array
+              items: { type: string }
+          required: [namespace, name, phase, containers]
+          additionalProperties: false
+    additionalProperties: true
+    required: [total, pods]
+  annotations:
+    readOnlyHint: true
+    destructiveHint: false
+    idempotentHint: true
+    openWorldHint: true
+  _meta:
+    toolName: query_pods
+    security:
+      riskLevel: low
       approvalMode: none
       defaultAction: allow
     approval: {}
@@ -427,6 +480,9 @@ tools:
   outputSchema:
     type: object
     properties:
+      errorMessage:
+        type: string
+        description: 工具执行失败时的具体原因；成功时省略。
       namespace:
         type: string
       pod:
@@ -536,7 +592,7 @@ examples:
         field: id
         reason: 必须为正整数
 implementationChanges:
-- 服务按本文件的 JSON Schema 发布 5 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
+  - 服务按本文件的 JSON Schema 发布 6 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
 - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
 - LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
 - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。

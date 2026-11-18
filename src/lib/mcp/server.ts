@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getStoredAlertDetails, getStoredAlerts } from "../kubernetes-events";
 import { getPodLogs } from "../kubernetes-logs";
+import { getPods } from "../kubernetes-pods";
 import {
   query as queryPrometheus,
   queryRange as queryPrometheusRange,
@@ -31,6 +32,7 @@ const TOOL_SCOPES: Record<string, string> = {
   query_promql: "mcp:read",
   query_alert_details: "mcp:read",
   query_pod_logs: "mcp:read",
+  query_pods: "mcp:read",
   restart_pod: "mcp:restart",
 };
 
@@ -118,7 +120,7 @@ function checkRateLimit(callerId: string) {
 /**
  * 将工具执行异常归一化为可返回给 MCP 客户端的错误码和安全消息。
  * @param error 工具校验或业务执行产生的未知异常。
- * @returns 包含稳定 code 和 message 字段的错误对象。
+ * @returns 包含稳定 code 和 errorMessage 字段的错误对象。
  */
 function codedError(error: unknown) {
   const message = error instanceof Error ? error.message : "工具执行失败";
@@ -141,10 +143,18 @@ function codedError(error: unknown) {
     (ownCode && known.includes(ownCode) ? ownCode : undefined) ??
     known.find((value) => message.includes(value)) ??
     (message.includes("超时") ? "TIMEOUT" : "UPSTREAM_ERROR");
+  const isExpectedToolError = [
+    "INVALID_PARAMS",
+    "FORBIDDEN",
+    "POD_CHANGED",
+    "POD_NOT_FOUND",
+    "RESULT_TOO_LARGE",
+    "RATE_LIMITED",
+  ].includes(code);
   return {
     code,
-    message:
-      code === "UPSTREAM_ERROR" || code === "TIMEOUT"
+    errorMessage:
+      !isExpectedToolError && (code === "UPSTREAM_ERROR" || code === "TIMEOUT")
         ? "上游服务暂时不可用"
         : message,
   };
@@ -216,6 +226,8 @@ async function execute(
     }
     case "query_pod_logs":
       return getPodLogs(args as Parameters<typeof getPodLogs>[0]);
+    case "query_pods":
+      return getPods(args as Parameters<typeof getPods>[0]);
     case "restart_pod": {
       const namespace = String(args.namespace);
       const pod = String(args.pod);
@@ -401,7 +413,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
     /**
      * 处理单项工具调用，并记录授权结果、执行结果和耗时。
      * @param requestParams MCP SDK 校验后的工具名称与调用参数。
-     * @returns MCP 工具结果；业务失败通过 isError 和结构化错误内容返回。
+     * @returns MCP 工具结果；工具失败通过结构化 errorMessage 返回。
      */
     mcpServer.server.setRequestHandler(
       CallToolRequestSchema,
@@ -423,15 +435,15 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
                 type: "text",
                 text: JSON.stringify({
                   code: "FORBIDDEN",
-                  message: "未知或未授权工具",
+                  errorMessage: "未知或未授权工具",
                 }),
               },
             ],
             structuredContent: {
               code: "FORBIDDEN",
-              message: "未知或未授权工具",
+              errorMessage: "未知或未授权工具",
             },
-            isError: true,
+            isError: false,
           };
         }
         try {
@@ -446,6 +458,25 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
             throw Object.assign(new Error("RESULT_TOO_LARGE"), {
               code: "RESULT_TOO_LARGE",
             });
+          if (
+            result &&
+            typeof result === "object" &&
+            "errorMessage" in result &&
+            typeof result.errorMessage === "string"
+          ) {
+            businessLog("mcp.tool.completed_with_error", {
+              level: "WARN",
+              callerId: caller.callerId,
+              tool: tool.name,
+              durationMs: Date.now() - startedAt,
+              errorMessage: result.errorMessage,
+            });
+            return {
+              content: [{ type: "text", text: serialized }],
+              structuredContent: result as Record<string, unknown>,
+              isError: false,
+            };
+          }
           businessLog("mcp.tool.completed", {
             callerId: caller.callerId,
             tool: tool.name,
@@ -485,7 +516,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
           return {
             content: [{ type: "text", text: JSON.stringify(failure) }],
             structuredContent: failure,
-            isError: true,
+            isError: false,
           };
         }
       },
