@@ -1,20 +1,29 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
-import type { ApprovalInput } from "../approval";
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
+export const MTAP_APPROVAL_KEY = "com.zhiwenxia/approval" as const;
 
 export type SecurityPolicy = {
   riskLevel: "low" | "medium" | "high" | "critical";
   approvalMode: "none" | "required" | "conditional";
-  approvalRole?: string;
-  defaultAction: "allow" | "deny" | "require_approval";
+  defaultAction?: "allow" | "deny" | "require_approval";
 };
 
-export type ApprovalMetadata = {
-  schema_version: 1;
-  inputPolicy: "fixed" | "model_assisted";
-  allowedInputTypes: ApprovalInput["type"][];
-  inputs: ApprovalInput[];
+export type ApprovalDefinition = {
+  schemaVersion: 1;
+  security: SecurityPolicy;
+  presentation?: {
+    title: string;
+    description: string;
+    inputs: Array<Record<string, unknown>>;
+  };
+  execution?: {
+    mode: "approval_gate";
+    onApproved: "execute_original_call";
+    onRejected: "cancel_call";
+  };
 };
 
 export type ToolDefinition = {
@@ -24,9 +33,8 @@ export type ToolDefinition = {
   outputSchema: Record<string, unknown>;
   annotations: Record<string, boolean>;
   _meta: {
-    toolName: string;
-    security: SecurityPolicy;
-    approval: ApprovalMetadata | Record<string, never>;
+    [MTAP_APPROVAL_KEY]: ApprovalDefinition;
+    [key: string]: unknown;
   };
 };
 
@@ -43,8 +51,11 @@ type Contract = {
 
 /** 缓存解析成功的 YAML 契约，避免每个 MCP 请求重复读取文件。 */
 let contractPromise: Promise<Contract> | undefined;
+const schemaAjv = new Ajv2020({ allErrors: true, strict: false, validateFormats: true });
+addFormats(schemaAjv);
+let validateMtapTool: ReturnType<typeof schemaAjv.compile> | undefined;
 
-function validApprovalInputs(inputs: unknown): inputs is ApprovalInput[] {
+function validApprovalInputs(inputs: unknown): inputs is Array<Record<string, unknown>> {
   if (!Array.isArray(inputs)) return false;
   const keys = new Set<string>();
   return inputs.every((input) => {
@@ -58,17 +69,19 @@ function validApprovalInputs(inputs: unknown): inputs is ApprovalInput[] {
       typeof input.label !== "string" ||
       !input.label.trim() ||
       typeof input.required !== "boolean" ||
-      (input.placeholder !== undefined && typeof input.placeholder !== "string")
+      (input.placeholder !== undefined && typeof input.placeholder !== "string") ||
+      (input.description !== undefined && typeof input.description !== "string")
     )
       return false;
     keys.add(input.key);
     if (input.type === "confirm")
-      return input.options === undefined && input.max_length === undefined;
+      return input.options === undefined && input.maxLength === undefined && input.placeholder === undefined &&
+        (input.mustBeTrue === undefined || (typeof input.mustBeTrue === "boolean" && (!input.mustBeTrue || input.required === true)));
     if (input.type === "single_select" || input.type === "multi_select") {
       if (
         !Array.isArray(input.options) ||
         input.options.length === 0 ||
-        input.max_length !== undefined
+        input.maxLength !== undefined || input.placeholder !== undefined || input.mustBeTrue !== undefined
       )
         return false;
       const values = new Set<string>();
@@ -89,9 +102,9 @@ function validApprovalInputs(inputs: unknown): inputs is ApprovalInput[] {
     }
     return (
       input.type === "text" &&
-      input.options === undefined &&
-      (input.max_length === undefined ||
-        (Number.isInteger(input.max_length) && input.max_length >= 0))
+      input.options === undefined && input.mustBeTrue === undefined &&
+      (input.maxLength === undefined ||
+        (Number.isInteger(input.maxLength) && Number(input.maxLength) >= 1 && Number(input.maxLength) <= 10000))
     );
   });
 }
@@ -102,8 +115,16 @@ function validApprovalInputs(inputs: unknown): inputs is ApprovalInput[] {
  * @throws YAML 无法读取、解析失败或工具元数据/协议版本与服务实现不一致时抛出错误。
  */
 export function getMcpContract(): Promise<Contract> {
-  contractPromise ??= readFile(path.join(process.cwd(), "api/mcp.yaml"), "utf8")
-    .then((source) => parse(source) as Contract)
+  contractPromise ??= Promise.all([
+    readFile(path.join(process.cwd(), "api/mcp.yaml"), "utf8"),
+    readFile(path.join(process.cwd(), "api/mtap-tool.schema.yaml"), "utf8"),
+  ])
+    .then(([source, schemaSource]) => {
+      const contract = parse(source) as Contract;
+      const schema = parse(schemaSource) as Record<string, unknown>;
+      validateMtapTool = schemaAjv.compile(schema);
+      return contract;
+    })
     .then((contract) => {
       if (!Array.isArray(contract.tools) || contract.tools.length === 0)
         throw new Error("api/mcp.yaml 必须定义 MCP 工具");
@@ -117,52 +138,41 @@ export function getMcpContract(): Promise<Contract> {
         if (!tool.name || names.has(tool.name))
           throw new Error("api/mcp.yaml 中的 MCP 工具名称缺失或重复");
         names.add(tool.name);
-        const security = tool._meta?.security;
-        const approval = tool._meta?.approval;
+        if (!validateMtapTool?.(tool)) {
+          const first = validateMtapTool?.errors?.[0];
+          throw new Error(
+            `MCP 工具不符合 MTAP Schema：${tool.name} ${first?.instancePath ?? ""} ${first?.message ?? ""}`,
+          );
+        }
+        const definition = tool._meta?.[MTAP_APPROVAL_KEY];
+        const security = definition?.security;
         if (
-          tool._meta?.toolName !== tool.name ||
+          definition?.schemaVersion !== 1 ||
           !["low", "medium", "high", "critical"].includes(
             security?.riskLevel,
           ) ||
           !["none", "conditional", "required"].includes(
             security?.approvalMode,
-          ) ||
-          !["allow", "deny", "require_approval"].includes(
-            security?.defaultAction,
-          ) || !approval || typeof approval !== "object" || Array.isArray(approval)
+          )
         )
           throw new Error(
-            "MCP 工具缺少有效 _meta.security 或 _meta.approval：" + tool.name,
+            "MCP 工具缺少有效 MTAP 审批定义：" + tool.name,
           );
         if (security.approvalMode === "none") {
-          if (security.approvalRole !== undefined || Object.keys(approval).length !== 0)
-            throw new Error("approvalMode=none 时必须省略 approvalRole 且 approval 必须为空对象：" + tool.name);
+          if (security.defaultAction !== undefined || definition.presentation !== undefined || definition.execution !== undefined)
+            throw new Error("approvalMode=none 时不得声明 defaultAction、presentation 或 execution：" + tool.name);
           continue;
         }
-        const approvalMetadata = approval as ApprovalMetadata;
         if (
-          !["fixed", "model_assisted"].includes(approvalMetadata.inputPolicy) ||
-          approvalMetadata.schema_version !== 1 ||
-          !Array.isArray(approvalMetadata.allowedInputTypes) ||
-          !approvalMetadata.allowedInputTypes.every((type) =>
-            ["confirm", "single_select", "multi_select", "text"].includes(type),
-          ) ||
-          !validApprovalInputs(approvalMetadata.inputs)
+          !definition.presentation || typeof definition.presentation.title !== "string" ||
+          !definition.presentation.title.trim() || typeof definition.presentation.description !== "string" ||
+          !definition.presentation.description.trim() || !validApprovalInputs(definition.presentation.inputs) ||
+          !definition.execution || definition.execution.mode !== "approval_gate" ||
+          definition.execution.onApproved !== "execute_original_call" || definition.execution.onRejected !== "cancel_call"
         )
-          throw new Error("MCP 工具缺少有效审批交互定义：" + tool.name);
-        if (
-          (security.approvalMode === "required" &&
-            (typeof security.approvalRole !== "string" || !security.approvalRole.trim())) ||
-          (security.approvalMode === "conditional" &&
-            (typeof security.approvalRole !== "string" || !security.approvalRole.trim())) ||
-          (approvalMetadata.inputPolicy === "model_assisted" &&
-            (new Set(approvalMetadata.allowedInputTypes).size !==
-              approvalMetadata.allowedInputTypes.length ||
-              approvalMetadata.inputs.some(
-                (input) => !approvalMetadata.allowedInputTypes.includes(input.type),
-              )))
-        )
-          throw new Error("MCP 工具安全策略与审批定义不兼容：" + tool.name);
+          throw new Error("MCP 工具缺少有效 MTAP presentation 或 execution：" + tool.name);
+        if (new Set(definition.presentation.inputs.map((input) => input.key)).size !== definition.presentation.inputs.length)
+          throw new Error("MTAP 审批表单 key 必须唯一：" + tool.name);
       }
       return contract;
     });

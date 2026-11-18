@@ -3,12 +3,12 @@ document:
   title: OperatorAgentService MCP 工具接口设计
   version: 0.1.0
   status: implemented
-  implementationStatus: Streamable HTTP 工具服务已实现。安全策略和审批交互定义通过每个 MCP Tool 的 _meta 元数据提供给远端编排器。
+  implementationStatus: Streamable HTTP 工具服务已实现。安全策略和审批交互定义通过每个 MCP Tool 的 _meta[com.zhiwenxia/approval] 元数据提供给远端编排器。
   source: src/lib/mcp/server.ts and existing business tools
   schemaDialect: https://json-schema.org/draft/2020-12/schema
   formatNotes:
   - MCP 没有规定 YAML 接口文档格式；本文件是工具与服务端执行契约，不是 OpenAPI，也不是 MCP SDK 可直接加载的配置。
-  - tools 数组中的对象采用 MCP Tool 字段；每项通过 _meta 扩展元数据描述风险和上游审批策略。
+  - tools 数组中的对象采用 MCP Tool 字段；每项的 _meta[com.zhiwenxia/approval] 按 api/mtap-tool.schema.yaml 描述风险、审批展示与执行语义。
   - inputSchema 从当前 Zod 定义以 input 模式导出；outputSchema 描述成功结果的核心字段。
   - 本服务执行授权调用者提供的工具，不负责 LangGraph 流程或人工审批决策。
 server:
@@ -44,7 +44,7 @@ server:
   capabilities:
     tools:
       listChanged: false
-  instructions: 本服务提供 Kubernetes 和监控工具。调用方应读取每个 Tool 的 _meta.security 与 _meta.approval，并由上游 LangGraphServer 按安全策略和审批定义
+  instructions: 本服务提供 Kubernetes 和监控工具。调用方应读取每个 Tool 的 _meta[com.zhiwenxia/approval]，并由上游 LangGraphServer 按安全策略和审批定义
     编排授权和人工审批。元数据是策略输入；MCP 服务仍执行调用者工具权限校验。
   authentication:
     mode: private-service-bearer
@@ -112,7 +112,7 @@ executionRules:
   query_pods:
   - 查询所有命名空间的 Pod；containerName 省略或为空时返回全部 Pod，否则按 Pod 中任一容器名称不区分大小写的子串匹配过滤。
   restart_pod:
-  - 本工具执行 Pod 删除；上游 LangGraphServer 根据 _meta.security 与 _meta.approval 完成审批编排后，使用具备 mcp:restart 权限的身份调用。
+  - 本工具执行 Pod 删除；上游 LangGraphServer 根据 MTAP 审批元数据完成审批编排后，使用具备 mcp:restart 权限的身份调用。
   - MCP 服务不保存或验证上游审批记录；服务仍验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
   - 删除成功仅表示 Pod 已删除，不保证控制器重建成功。
 tools:
@@ -208,12 +208,11 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    toolName: query_alerts
-    security:
-      riskLevel: low
-      approvalMode: none
-      defaultAction: allow
-    approval: {}
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: low
+        approvalMode: none
 - name: query_promql
   description: 使用 PromQL 查询 Prometheus 指标。适用于 CPU、内存、磁盘、网络、Pod/Node 状态等自定义指标查询。模型负责生成 PromQL；默认执行即时查询。需要趋势时设置 rangeMinutes
     和 stepSeconds 执行区间查询。只读查询，不会修改监控数据。
@@ -266,12 +265,11 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    toolName: query_promql
-    security:
-      riskLevel: low
-      approvalMode: none
-      defaultAction: allow
-    approval: {}
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: low
+        approvalMode: none
 - name: query_alert_details
   description: 根据告警数据库 ID 查询完整详情和当前恢复状态。对单条告警诊断时必须首先调用此工具。
   inputSchema:
@@ -350,12 +348,11 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    toolName: query_alert_details
-    security:
-      riskLevel: medium
-      approvalMode: none
-      defaultAction: allow
-    approval: {}
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: medium
+        approvalMode: none
 - name: query_pod_logs
   description: 读取指定 Kubernetes Pod 容器的近期日志，用于故障分析。
   inputSchema:
@@ -408,12 +405,11 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    toolName: query_pod_logs
-    security:
-      riskLevel: medium
-      approvalMode: none
-      defaultAction: allow
-    approval: {}
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: medium
+        approvalMode: none
 - name: query_pods
   description: 查询集群中所有命名空间的 Pod；可按容器名称进行模糊匹配。
   inputSchema:
@@ -449,12 +445,11 @@ tools:
     idempotentHint: true
     openWorldHint: true
   _meta:
-    toolName: query_pods
-    security:
-      riskLevel: low
-      approvalMode: none
-      defaultAction: allow
-    approval: {}
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: low
+        approvalMode: none
 - name: restart_pod
   description: 删除指定 Pod；该工具目录策略要求每次调用先由上游 LangGraphServer 创建并完成审批。删除通过当前 Pod UID 条件执行，避免误删同名重建对象。
   inputSchema:
@@ -500,22 +495,24 @@ tools:
     idempotentHint: false
     openWorldHint: true
   _meta:
-    toolName: restart_pod
-    security:
-      riskLevel: high
-      approvalMode: required
-      approvalRole: "ops_admin"
-      defaultAction: require_approval
-    approval:
-      schema_version: 1
-      inputPolicy: fixed
-      allowedInputTypes: []
-      inputs:
-      - key: impact_confirmed
-        label: 确认已了解重启影响
-        type: confirm
-        required: true
-
+    com.zhiwenxia/approval:
+      schemaVersion: 1
+      security:
+        riskLevel: high
+        approvalMode: required
+      presentation:
+        title: 审批 Pod 重启
+        description: 删除指定 Pod 会导致其短暂不可用；是否恢复取决于控制器配置。请核对目标和影响后批准。
+        inputs:
+        - key: impact_confirmed
+          type: confirm
+          label: 确认已了解重启影响
+          required: true
+          mustBeTrue: true
+      execution:
+        mode: approval_gate
+        onApproved: execute_original_call
+        onRejected: cancel_call
 examples:
   initializeRequest:
     jsonrpc: '2.0'
@@ -538,7 +535,7 @@ examples:
       serverInfo:
         name: operator-agent-service
         version: 1.0.0
-      instructions: 诊断单条告警先调用 query_alert_details；工具审批由远端 LangGraphServer 根据工具 _meta.security 和 _meta.approval 元数据编排。
+      instructions: 诊断单条告警先调用 query_alert_details；工具审批由远端 LangGraphServer 根据工具 MTAP 审批元数据编排。
   initializedNotification:
     jsonrpc: '2.0'
     method: notifications/initialized
@@ -547,7 +544,7 @@ examples:
     id: 2
     method: tools/list
     params: {}
-  listToolsResponseNote: result.tools 从本文件 tools 数组中按权限及启用状态筛选，并原样返回 _meta.security 与 _meta.approval。
+  listToolsResponseNote: result.tools 从本文件 tools 数组中按权限及启用状态筛选，并原样返回 MTAP 审批元数据。
   callRequest:
     jsonrpc: '2.0'
     id: 3
@@ -589,22 +586,8 @@ examples:
         field: id
         reason: 必须为正整数
 implementationChanges:
-  - 服务按本文件的 JSON Schema 发布 6 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
+  - 服务按本文件发布 6 个 MCP Tool；每个 Tool 均在加载时使用 api/mtap-tool.schema.yaml 校验。
   - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
   - LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
   - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。
   - 运行 npm run typecheck 和 npm run build 验证类型和 Next.js standalone 路由打包。
-toolSecurityMetadata:
-  location: MCP Tool._meta
-  securityFields:
-    riskLevel: [low, medium, high, critical]
-    approvalMode: [none, required, conditional]
-    approvalRole: required/conditional 时填写非空处理角色；none 时必须省略，且不能用于授权。
-    defaultAction: [allow, deny, require_approval]
-  approvalFields:
-    noneMode: approvalMode=none 时 approval 必须是空对象 {}
-    schema_version: 1
-    inputPolicy: [fixed, model_assisted]
-    allowedInputTypes: [confirm, single_select, multi_select, text]
-    inputs: 与 api/approval.yaml ApprovalRequest.inputs 兼容的表单定义；可为空。
-  policyOwner: MCP 服务端发布该策略声明；远端 LangGraphServer 负责按 required/conditional 规则创建审批请求并等待终态决定。目录元数据不是授权凭证，MCP 服务仍独立校验调用者和资源权限。

@@ -1,0 +1,300 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://zhiwenxia.org/schemas/mtap-tool-v1.schema.yaml
+title: MTAP V1.0 — MCP 工具审批定义校验 Schema
+description: >-
+  用于校验 MCP tools/list 响应中的单个 Tool 对象是否符合 MTAP V1.0。
+  它验证审批声明的结构、类型、枚举、条件必填、禁止字段、控件专属约束和执行语义。
+  不验证接口调用者身份、工具风险实际等级、条件策略运行结果及跨数组元素的 key/value 唯一性。
+  V1 仅要求接口鉴权，不定义角色或基于角色的审批授权。
+$comment: >-
+  这是 JSON Schema Draft 2020-12，使用 YAML 表示。
+  com.zhiwenxia/approval 是示例扩展命名空间，部署时请将本文件和工具定义中的该键统一替换为组织专属命名空间。
+  本文件只校验一个工具，校验 tools/list 的多个工具时须逐个调用。
+  inputSchema/outputSchema 作为嵌套 JSON Schema，其有效性须另外使用相应 draft 的 check_schema 验证。
+type: object
+required: [name, inputSchema, _meta]
+properties:
+  name:
+    type: string
+    minLength: 1
+    maxLength: 256
+    pattern: '[^\s]'
+    description: MCP 工具唯一名称（在同一 MCP Server 的工具目录中必须唯一；跨工具唯一性由目录校验器负责）。
+  title:
+    type: string
+    maxLength: 200
+    description: MCP 工具本身的人类可读名称；不同于 presentation.title 审批窗口标题。
+  description:
+    type: string
+    description: MCP 工具功能描述，供模型理解工具用途；不是审批原因，也不是审批页面说明。
+  inputSchema:
+    type: object
+    required: [type]
+    properties:
+      type:
+        const: object
+    additionalProperties: true
+    description: >-
+      工具业务参数 JSON Schema，顶层必须为 object；此处只保证顶层形状。
+      应独立验证嵌套 Schema 合法性及 tool call 参数值，不能将审批 answers 放入这里。
+  outputSchema:
+    type: object
+    description: 可选的 MCP 工具结构化输出 JSON Schema；本文件不负责验证其内部 Schema 语法。
+  annotations:
+    type: object
+    description: MCP 原生工具提示性注解；不能替代 MTAP 审批或授权校验。
+  _meta:
+    type: object
+    required: [com.zhiwenxia/approval]
+    properties:
+      com.zhiwenxia/approval:
+        $ref: '#/$defs/approvalDefinition'
+    additionalProperties: true
+    description: MCP 扩展元数据容器；其他扩展键允许存在，MTAP 键为当前管理模式必填。
+additionalProperties: true
+$defs:
+  approvalDefinition:
+    title: MTAP 审批定义
+    type: object
+    required: [schemaVersion, security]
+    properties:
+      schemaVersion:
+        type: integer
+        const: 1
+        description: 审批元数据协议的主版本，当前仅接受整数 1；不等于工具自身的版本。
+      security:
+        $ref: '#/$defs/security'
+      presentation:
+        $ref: '#/$defs/presentation'
+      execution:
+        $ref: '#/$defs/execution'
+    additionalProperties: false
+    allOf:
+      - if:
+          properties:
+            security:
+              properties:
+                approvalMode: {const: none}
+              required: [approvalMode]
+          required: [security]
+        then:
+          description: none 模式只能声明安全等级和免审模式；不得附带审批表单或审批门禁执行语义。
+          properties:
+            security:
+              properties:
+                defaultAction: false
+            presentation: false
+            execution: false
+        else:
+          description: required/conditional 均必须提供审批展示定义及审批执行语义。
+          required: [presentation, execution]
+  security:
+    title: 审批安全策略
+    description: >-
+      仅声明工具风险等级、审批触发模式和条件判断失败时的兜底操作。
+      V1 不包含 approvalRole；身份认证由 Agent Server 的接口鉴权层实现，
+      审批提交与恢复接口必须验证调用者身份，不在此 Schema 声明角色权限。
+    type: object
+    required: [riskLevel, approvalMode]
+    properties:
+      riskLevel:
+        type: string
+        enum: [low, medium, high, critical]
+        description: >-
+          工具静态风险分级：low=低、medium=中、high=高、critical=严重。
+          用于 UI 提示和平台策略参考；不能仅凭该字段绕过审批或判断实际授权。
+      approvalMode:
+        type: string
+        enum: [none, required, conditional]
+        description: >-
+          none=MTAP 不要求人工审批，但接口仍须鉴权；required=每次执行前都必须获批；
+          conditional=由可信服务端策略结合本次调用上下文判断是否审批。
+          大模型的建议不能直接覆盖该决策。
+      defaultAction:
+        type: string
+        enum: [allow, deny, require_approval]
+        description: >-
+          仅 conditional 允许且必须提供。表示服务端条件策略无法得出结论时的兜底动作：
+          allow=按平台策略允许直接执行；deny=禁止执行；require_approval=转人工审批。
+          不代表审批被拒绝后的动作，也不适用于 required 模式。
+    additionalProperties: false
+    allOf:
+      - if:
+          properties:
+            approvalMode: {const: conditional}
+          required: [approvalMode]
+        then:
+          required: [defaultAction]
+        else:
+          properties:
+            defaultAction: false
+  presentation:
+    title: 审批界面定义
+    type: object
+    required: [title, description, inputs]
+    properties:
+      title:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: '[^\s]'
+        description: 审批弹窗/任务卡主标题，例如“审批 Pod 重启”；不得仅含空白字符。
+      description:
+        type: string
+        minLength: 1
+        maxLength: 4000
+        pattern: '[^\s]'
+        description: >-
+          静态审批提示及风险说明，不要包含本次调用的具体秘密信息。
+          本次审批理由、工具参数和证据由运行时 ApprovalRequest 提供。
+      inputs:
+        type: array
+        minItems: 0
+        maxItems: 64
+        items:
+          $ref: '#/$defs/approvalInput'
+        description: >-
+          审批表单字段定义数组。空数组表示只有批准/拒绝按钮，无额外答案。
+          每项 key 必须唯一；JSON Schema 无法按对象属性 key 去重，需语义校验。
+    additionalProperties: false
+  approvalInput:
+    title: 单个审批表单字段
+    type: object
+    required: [key, type, label, required]
+    properties:
+      key:
+        type: string
+        minLength: 1
+        maxLength: 100
+        pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+        description: >-
+          表单答案对象 answers 内的属性名。以英文字母开头，只允许字母、数字、下划线。
+          在同一 inputs 数组内必须唯一（额外语义校验）。
+      type:
+        type: string
+        enum: [confirm, single_select, multi_select, text]
+        description: >-
+          控件类型：confirm=布尔确认框，single_select=单选字符串，
+          multi_select=字符串数组，text=文本字符串。
+      label:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: '[^\s]'
+        description: 前端显示的字段标题；不能为空白。
+      required:
+        type: boolean
+        description: >-
+          批准审批时该答案是否必填；拒绝时可不填写。
+          对 confirm 表示必须提交布尔值，不等于必须选择 true。
+      description:
+        type: string
+        maxLength: 1000
+        description: 该字段的辅助说明，可用于提示影响或填写要求。
+      placeholder:
+        type: string
+        maxLength: 500
+        description: 仅 text 类型允许；前端空输入时的提示文案。
+      mustBeTrue:
+        type: boolean
+        description: >-
+          仅 confirm 可用；为 true 表示批准时答案必须等于 true；
+          为 false 或省略表示 false 也是合法布尔值。为 true 时 required 也必须为 true。
+      options:
+        type: array
+        minItems: 1
+        maxItems: 100
+        items:
+          $ref: '#/$defs/approvalOption'
+        description: >-
+          仅 single_select/multi_select 可用，且至少一个候选值。
+          答案必须使用 option.value，不能提交 option.label。
+          value 在同一 options 数组内必须唯一（额外语义校验）。
+      maxLength:
+        type: integer
+        minimum: 1
+        maximum: 10000
+        description: 仅 text 类型允许；答案字符串的最大字符长度，服务端必须校验。
+    additionalProperties: false
+    allOf:
+      - if:
+          properties:
+            type: {const: confirm}
+          required: [type]
+        then:
+          properties:
+            options: false
+            maxLength: false
+            placeholder: false
+          allOf:
+            - if:
+                properties:
+                  mustBeTrue: {const: true}
+                required: [mustBeTrue]
+              then:
+                properties:
+                  required: {const: true}
+        else:
+          properties:
+            mustBeTrue: false
+      - if:
+          properties:
+            type: {enum: [single_select, multi_select]}
+          required: [type]
+        then:
+          required: [options]
+          properties:
+            maxLength: false
+            placeholder: false
+        else:
+          properties:
+            options: false
+      - if:
+          properties:
+            type: {const: text}
+          required: [type]
+        then:
+          properties:
+            mustBeTrue: false
+        else:
+          properties:
+            maxLength: false
+            placeholder: false
+  approvalOption:
+    title: 单选或多选候选项
+    type: object
+    required: [value, label]
+    properties:
+      value:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: '[^\s]'
+        description: 提交给后端的稳定机器可读值；在同一 options 数组内不得重复。
+      label:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: '[^\s]'
+        description: 展示给审批人的选项文字，不作为后端答案值。
+    additionalProperties: false
+  execution:
+    title: 审批之后的工具执行语义
+    type: object
+    required: [mode, onApproved, onRejected]
+    properties:
+      mode:
+        type: string
+        const: approval_gate
+        description: V1 唯一支持的门禁模式，审批不能编辑工具参数或执行时机。
+      onApproved:
+        type: string
+        const: execute_original_call
+        description: >-
+          批准且服务端验证通过后，只执行服务端持久化的原工具和原参数；
+          answers 不能直接拼入工具 arguments，也不能由前端覆盖。
+      onRejected:
+        type: string
+        const: cancel_call
+        description: 拒绝或取消后不执行原始工具调用，并记录审批结果。
+    additionalProperties: false

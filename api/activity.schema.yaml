@@ -1,0 +1,179 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$title: ACTIVITY_SNAPSHOT content schema
+description: >-
+  项目定义的 ACTIVITY_SNAPSHOT.content 数据结构。AG-UI 外层事件结构不在此 schema 范围内。
+type: object
+additionalProperties: true
+required:
+  - schemaVersion
+  - run
+  - events
+properties:
+  schemaVersion:
+    type: integer
+    const: 1
+    description: content 模型版本；不兼容变更时递增。
+  run:
+    $ref: '#/$defs/run'
+  events:
+    type: array
+    description: 按 sequence 升序排列的平铺活动条目。
+    items:
+      oneOf:
+        - $ref: '#/$defs/modelInference'
+        - $ref: '#/$defs/toolExecution'
+        - $ref: '#/$defs/genericEvent'
+$defs:
+  timestamp:
+    type: string
+    format: date-time
+    description: ISO-8601 UTC 时间字符串。
+  nullableTimestamp:
+    oneOf:
+      - $ref: '#/$defs/timestamp'
+      - type: 'null'
+  status:
+    type: string
+    enum: [queued, running, awaiting_approval, completed, failed, cancelled]
+  run:
+    type: object
+    additionalProperties: true
+    required: [runId, threadId, status, startedAt, updatedAt, finishedAt, error]
+    properties:
+      runId:
+        type: string
+        minLength: 1
+        description: 本次 agent 运行的标识。
+      threadId:
+        type: string
+        minLength: 1
+        description: 所属对话 thread 的标识。
+      status:
+        $ref: '#/$defs/status'
+      startedAt:
+        $ref: '#/$defs/timestamp'
+      updatedAt:
+        $ref: '#/$defs/timestamp'
+      finishedAt:
+        $ref: '#/$defs/nullableTimestamp'
+      error:
+        oneOf:
+          - type: string
+          - type: 'null'
+        description: 运行失败时的安全错误摘要。
+  baseEvent:
+    type: object
+    additionalProperties: true
+    required: [id, sequence, type, title, status, startedAt, updatedAt, finishedAt, input, output, error]
+    properties:
+      id:
+        type: string
+        minLength: 1
+        description: 活动条目的稳定唯一标识。
+      sequence:
+        type: integer
+        minimum: 1
+        description: 在本活动时间线中单调递增的展示顺序。
+      type:
+        type: string
+      title:
+        type: string
+        minLength: 1
+        description: 面向用户的简短标题。
+      status:
+        $ref: '#/$defs/status'
+      startedAt:
+        $ref: '#/$defs/timestamp'
+      updatedAt:
+        $ref: '#/$defs/timestamp'
+      finishedAt:
+        $ref: '#/$defs/nullableTimestamp'
+      input:
+        description: 脱敏后的输入摘要，不得包含隐藏推理或敏感参数。
+      output:
+        description: 规范化输出；具体结构由活动类型决定。
+      error:
+        oneOf:
+          - type: string
+          - type: 'null'
+        description: 失败时的安全错误摘要。
+  modelInference:
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        required: [type, correlation]
+        properties:
+          type:
+            const: model_inference
+          correlation:
+            type: object
+            additionalProperties: false
+            required: [messageId]
+            properties:
+              messageId:
+                type: string
+                minLength: 1
+                description: 对应 TEXT_MESSAGE_* 事件的 message_id。
+          output:
+            oneOf:
+              - type: object
+                additionalProperties: true
+                properties:
+                  messageId:
+                    type: string
+                    minLength: 1
+                    description: 应与 correlation.messageId 一致。
+                  text:
+                    type: string
+                    description: 可选完整文本；缺省时客户端按 messageId 拼接 TEXT_MESSAGE_CONTENT.delta。
+                  content:
+                    type: array
+                    description: 按顺序排列的多模态内容块。
+                    items: {}
+              - type: 'null'
+  toolExecution:
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        required: [type, tool, correlation]
+        properties:
+          type:
+            const: tool_execution
+          tool:
+            type: object
+            additionalProperties: true
+            required: [name]
+            properties:
+              name:
+                type: string
+                minLength: 1
+              server:
+                type: string
+          correlation:
+            type: object
+            additionalProperties: false
+            required: [toolCallId]
+            properties:
+              toolCallId:
+                type: string
+                minLength: 1
+                description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
+  genericEvent:
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        properties:
+          type:
+            enum: [system_step, approval]
+          tool:
+            type: object
+          correlation:
+            type: object
+          approval:
+            type: object
+            additionalProperties: true
+            properties:
+              requestId:
+                type: string
+              status:
+                $ref: '#/$defs/status'
