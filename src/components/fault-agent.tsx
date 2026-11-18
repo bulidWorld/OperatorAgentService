@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { CopilotChat, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
+import { Markdown } from "@copilotkit/react-ui";
+import { buildFaultAgentTurns } from "@/lib/fault-agent-turns";
 import type { ActivityMessage, Interrupt } from "@ag-ui/client";
 import { Activity, Bot, Check, CircleAlert, Clock3, FileText, LoaderCircle, ShieldCheck, Wrench, X } from "lucide-react";
 import type {
@@ -12,56 +14,66 @@ import { parseApprovalRequest, validateApprovalAnswers } from "@/lib/approval";
 import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, type AgentRunEvent, type AgentRunActivity, type ActivitySyncState } from "@/lib/activity";
 
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
-  const [activity, setActivity] = useState<ActivityMessage | null>(null);
-  const [sync, setSync] = useState<ActivitySyncState>("ready");
   const [runUsers, setRunUsers] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, string>>({});
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
 
   useEffect(() => {
     if (!isReady) return;
+    const snapshots = new Map<string, { activity: ActivityMessage | null; sync: ActivitySyncState }>();
+    setActivities({});
+    setRunUsers({});
+    setResults({});
+    const save = (message: ActivityMessage | null, sync: ActivitySyncState) => {
+      const parsed = parseAgentRunActivity(message?.content);
+      if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync } }));
+    };
+    const hydrate = (messages: typeof agent.messages) => {
+      let userId: string | undefined;
+      for (const message of messages) {
+        if (message.role === "user") userId = message.id;
+        if (message.role !== "activity") continue;
+        const parsed = parseAgentRunActivity(message.content);
+        if (!parsed) continue;
+        snapshots.set(message.id, { activity: message, sync: "ready" });
+        if (userId) {
+          const owner = userId;
+          setRunUsers((current) => ({ ...current, [parsed.run.runId]: owner }));
+        }
+        save(message, "ready");
+      }
+    };
+    hydrate(agent.messages);
     const subscription = agent.subscribe({
       onRunStartedEvent: ({ event, messages }) => {
         const user = [...messages].reverse().find((message) => message.role === "user");
         if (user) setRunUsers((current) => ({ ...current, [event.runId]: user.id }));
       },
-      onMessagesSnapshotEvent: ({ event }) => {
-        let userId: string | undefined;
-        for (const message of event.messages) {
-          if (message.role === "user") userId = message.id;
-          if (message.role !== "activity" || !userId) continue;
-          const parsed = parseAgentRunActivity(message.content);
-          if (!parsed) continue;
-          const owner = userId;
-          setRunUsers((current) => ({ ...current, [parsed.run.runId]: owner }));
-          setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync: "ready" } }));
+      onRunFinishedEvent: ({ event }) => {
+        if (typeof event.result === "string" && event.result.trim()) {
+          const text = event.result;
+          setResults((current) => ({ ...current, [event.runId]: text }));
         }
       },
-      onActivitySnapshotEvent: ({ event, activityMessage }) => {
-        const result = reduceActivitySnapshot(null, event);
-        if (event.activityType === "agent_run") {
-          const next = activityMessage ?? result.activity;
-          setActivity(next);
-          setSync(result.sync);
-          const parsed = parseAgentRunActivity(next?.content);
-          if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync: result.sync } }));
-        }
-      },
-      onActivityDeltaEvent: ({ event, activityMessage }) => {
+      onMessagesSnapshotEvent: ({ event }) => hydrate(event.messages),
+      onActivitySnapshotEvent: ({ event }) => {
         if (event.activityType !== "agent_run") return;
-        setActivity((current) => {
-          const result = reduceActivityDelta(current, event, sync);
-          setSync(result.sync);
-          const next = activityMessage ?? result.activity;
-          const parsed = parseAgentRunActivity(next?.content);
-          if (parsed) setActivities((currentActivities) => ({ ...currentActivities, [parsed.run.runId]: { activity: parsed, sync: result.sync } }));
-          return next;
-        });
+        const result = reduceActivitySnapshot(snapshots.get(event.messageId)?.activity ?? null, event);
+        snapshots.set(event.messageId, result);
+        save(result.activity, result.sync);
+      },
+      onActivityDeltaEvent: ({ event }) => {
+        if (event.activityType !== "agent_run") return;
+        const previous = snapshots.get(event.messageId);
+        const result = reduceActivityDelta(previous?.activity ?? null, event, previous?.sync ?? "ready");
+        snapshots.set(event.messageId, result);
+        save(result.activity, result.sync);
       },
     });
     return () => subscription.unsubscribe();
-  }, [agent, isReady, sync]);
+  }, [agent, isReady, agent.threadId]);
 
-  return { activity: parseAgentRunActivity(activity?.content), sync, activities, runUsers };
+  return { activities, runUsers, results };
 }
 
 const statusLabels: Record<string, string> = {
@@ -119,7 +131,7 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange }: { acti
     <section className="activity-timeline" aria-live="polite">
       <details className="activity-timeline-fold" open={expanded} onToggle={(event) => onExpandedChange(event.currentTarget.open)}>
       <summary className="activity-timeline-heading">
-        <div><span className="activity-kicker">LIVE EXECUTION</span><h3>执行时间线 <span className="activity-event-count">{sortedEvents.length} 步</span></h3></div>
+        <div><span className="activity-kicker">ACTIVITY</span><h3>执行时间线 <span className="activity-event-count">{sortedEvents.length} 步</span></h3></div>
         <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
       </summary>
       {sync === "needs_snapshot" && <div className="activity-sync-notice"><FileText size={14} />活动增量暂不可用，等待完整快照同步。</div>}
@@ -302,7 +314,7 @@ function ApprovalCard({
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities, runUsers } = useAgentActivity(agent, isReady);
+  const { activities, runUsers, results } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const approval = useInterrupt({
     renderInChat: false,
@@ -333,46 +345,26 @@ export default function FaultAgent() {
     <section className="panel fault-agent">
       <div className="panel-heading">
         <div className="list-title">
-          <h2>故障分析 Agent</h2>
-          <span className="count-pill">自然语言查询</span>
+          <h2>故障分析助手</h2>
+          <span className="count-pill">智能诊断</span>
         </div>
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
       <CopilotChat
         labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
-        messageView={{ children: ({ messageElements, messages }) => {
-          const ordered = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt));
-          const renderedRuns = new Set<string>();
-          const activityRuns = ordered.map((entry) => ({ ...entry, runId: entry.activity.run.runId }));
-          return <div className="fault-agent-chat-layout"><div className="fault-agent-chat-column fault-agent-assist-column">
-            <header className="fault-agent-column-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><div><b>Assist</b><small>执行活动与分析结论</small></div></header>
-            {activityRuns.map(({ activity, sync, runId }) => <ActivityTimeline key={runId} activity={activity} sync={sync} expanded={expandedRuns[runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [runId]: expanded }))} />)}
-            {(() => {
-              // Each user message starts a conversation turn. Keep only the last
-              // assistant text message in each turn as its final conclusion;
-              // RUN_FINISHED.result is optional and is not required for display.
-              const lastAssistantByUser = new Map<string, number>();
-              let currentUserId: string | undefined;
-              messages.forEach((message, index) => {
-                if (message.role === "user") currentUserId = message.id;
-                else if (message.role === "assistant" && message.content?.trim() && currentUserId) {
-                  lastAssistantByUser.set(currentUserId, index);
-                }
-              });
-              const conclusionIndices = new Set(lastAssistantByUser.values());
-              return messageElements.map((element, index) => {
-                const message = messages[index];
-                if (message?.role !== "assistant" || !conclusionIndices.has(index)) return null;
-                return <section className="fault-agent-conclusion" key={message.id}><span className="activity-kicker">ASSIST</span>{element}</section>;
-              });
-            })()}
-          </div><div className="fault-agent-chat-column fault-agent-user-column">
-            <header className="fault-agent-column-heading"><span className="fault-agent-avatar user"><span>U</span></span><div><b>User</b><small>对话消息</small></div></header>
-            {messageElements.map((element, index) => {
-            const message = messages[index];
-            return message?.role === "user" ? <div className="fault-agent-user-message" key={message.id}>{element}</div> : null;
-          })}
-          </div></div>;
+        messageView={{ children: ({ messages }) => {
+          const turns = buildFaultAgentTurns(messages, activities, runUsers, results);
+          return <div className="fault-agent-conversation">
+            {!turns.length && <div className="fault-agent-welcome"><span className="fault-agent-welcome-icon"><Bot size={28} /></span><h3>从一个问题开始排查</h3><p>描述故障现象，或询问近期告警与资源瓶颈。<br />执行过程和分析结果会按轮次保留在这里。</p></div>}
+            {turns.map((turn, index) => <section className="fault-agent-turn" key={turn.user.id} aria-label={`第 ${index + 1} 轮对话`}>
+              <div className="fault-agent-question"><span className="fault-agent-turn-label">你</span><p>{turn.user.content}</p></div>
+              <div className="fault-agent-reply">
+                <div className="fault-agent-reply-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><b>故障分析助手</b><span>第 {index + 1} 轮</span></div>
+                {turn.runs.map(({ activity, sync }) => <ActivityTimeline key={activity.run.runId} activity={activity} sync={sync} expanded={expandedRuns[activity.run.runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))} />)}
+                {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
+              </div>
+            </section>)}
+          </div>;
         } }}
       />
       {approval}
