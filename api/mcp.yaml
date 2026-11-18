@@ -396,9 +396,6 @@ tools:
         type: string
       truncated:
         type: boolean
-      errorMessage:
-        type: string
-        description: 工具执行失败时的具体原因；成功时省略。
     required:
     - namespace
     - pod
@@ -593,10 +590,10 @@ examples:
         reason: 必须为正整数
 implementationChanges:
   - 服务按本文件的 JSON Schema 发布 6 个 MCP Tool，并在 tools/list 中返回各工具的 _meta.security 与 _meta.approval 扩展元数据。
-- Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
-- LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
-- 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。
-- 运行 npm run typecheck 和 npm run build 验证类型和 Next.js standalone 路由打包。
+  - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
+  - LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
+  - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。
+  - 运行 npm run typecheck 和 npm run build 验证类型和 Next.js standalone 路由打包。
 toolSecurityMetadata:
   location: MCP Tool._meta
   securityFields:
