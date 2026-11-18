@@ -40,7 +40,7 @@ export async function getPodLogs(input: {
   });
   return new Promise<{ namespace: string; pod: string; container?: string; logs: string; truncated: boolean }>((resolve, reject) => {
     const req = httpsRequest({ hostname, port: Number(port), path, method: "GET", ca,
-      headers: { Authorization: `Bearer ${token.trim()}`, Accept: "text/plain" } }, response => {
+      headers: { Authorization: `Bearer ${token.trim()}`, Accept: "application/json" } }, response => {
       const status = response.statusCode ?? 500;
       const chunks: Buffer[] = [];
       let size = 0;

@@ -68,7 +68,7 @@ server:
     tools/list: 返回可调用的 Tool 定义；首版不分页，不返回 nextCursor。
     tools/call: 校验名称、参数、权限后执行；不调用本服务大模型。
 resultContract:
-  success: 除 query_pod_logs 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 text/plain 嵌入资源。result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
+  success: 除 query_pod_logs 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 MCP EmbeddedResource 内容块，resource.type=text，resource.resource.uri 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志正文。result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
   failure: 业务执行或授权失败返回 result.isError=true；content 文本与 structuredContent 中的 code、message 保持一致，不泄露凭证或上游原始敏感错误。
   notFound: query_alert_details 的 found=false 是正常业务结果，isError=false。
   httpErrors:

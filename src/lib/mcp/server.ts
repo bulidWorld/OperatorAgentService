@@ -458,6 +458,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
                 {
                   type: "resource" as const,
                   resource: {
+                    type: "text" as const,
                     uri: `log:///k8s/${podLogs.namespace}/${podLogs.pod}.log`,
                     mimeType: "text/plain; charset=utf-8",
                     text: podLogs.logs,
