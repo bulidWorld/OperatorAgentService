@@ -109,7 +109,7 @@ function EventDetails({ item }: { item: AgentRunEvent }) {
   return <details className="activity-event-details"><summary>查看执行详情</summary><div>{details.map(([label, value]) => <section key={label}><b>{label}</b><pre>{displayValue(value)}</pre></section>)}</div></details>;
 }
 
-function ActivityTimeline({ activity, sync }: { activity: AgentRunActivity | null; sync: ActivitySyncState }) {
+function ActivityTimeline({ activity, sync, expanded, onExpandedChange }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void }) {
   if (!activity) {
     return <div className="activity-empty-state compact"><span><Clock3 size={17} /></span><p>执行时间线暂不可用。</p></div>;
   }
@@ -117,7 +117,7 @@ function ActivityTimeline({ activity, sync }: { activity: AgentRunActivity | nul
   const runStatus = statusLabels[activity.run.status] ?? activity.run.status;
   return (
     <section className="activity-timeline" aria-live="polite">
-      <details className="activity-timeline-fold" open={activity.run.status === "running" || activity.run.status === "awaiting_approval"}>
+      <details className="activity-timeline-fold" open={expanded} onToggle={(event) => onExpandedChange(event.currentTarget.open)}>
       <summary className="activity-timeline-heading">
         <div><span className="activity-kicker">LIVE EXECUTION</span><h3>执行时间线 <span className="activity-event-count">{sortedEvents.length} 步</span></h3></div>
         <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
@@ -303,6 +303,7 @@ function ApprovalCard({
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
   const { activities, runUsers } = useAgentActivity(agent, isReady);
+  const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const approval = useInterrupt({
     renderInChat: false,
     enabled: ({ name }) => name === "on_interrupt",
@@ -342,30 +343,36 @@ export default function FaultAgent() {
         messageView={{ children: ({ messageElements, messages }) => {
           const ordered = Object.values(activities).sort((a, b) => a.activity.run.startedAt.localeCompare(b.activity.run.startedAt));
           const renderedRuns = new Set<string>();
-          return <>{messageElements.map((element, index) => {
+          const activityRuns = ordered.map((entry) => ({ ...entry, runId: entry.activity.run.runId }));
+          return <div className="fault-agent-chat-layout"><div className="fault-agent-chat-column fault-agent-assist-column">
+            <header className="fault-agent-column-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><div><b>Assist</b><small>执行活动与分析结论</small></div></header>
+            {activityRuns.map(({ activity, sync, runId }) => <ActivityTimeline key={runId} activity={activity} sync={sync} expanded={expandedRuns[runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [runId]: expanded }))} />)}
+            {(() => {
+              // Each user message starts a conversation turn. Keep only the last
+              // assistant text message in each turn as its final conclusion;
+              // RUN_FINISHED.result is optional and is not required for display.
+              const lastAssistantByUser = new Map<string, number>();
+              let currentUserId: string | undefined;
+              messages.forEach((message, index) => {
+                if (message.role === "user") currentUserId = message.id;
+                else if (message.role === "assistant" && message.content?.trim() && currentUserId) {
+                  lastAssistantByUser.set(currentUserId, index);
+                }
+              });
+              const conclusionIndices = new Set(lastAssistantByUser.values());
+              return messageElements.map((element, index) => {
+                const message = messages[index];
+                if (message?.role !== "assistant" || !conclusionIndices.has(index)) return null;
+                return <section className="fault-agent-conclusion" key={message.id}><span className="activity-kicker">ASSIST</span>{element}</section>;
+              });
+            })()}
+          </div><div className="fault-agent-chat-column fault-agent-user-column">
+            <header className="fault-agent-column-heading"><span className="fault-agent-avatar user"><span>U</span></span><div><b>User</b><small>对话消息</small></div></header>
+            {messageElements.map((element, index) => {
             const message = messages[index];
-            if (message?.role !== "user") return null;
-            const nextUser = messages.findIndex((item, position) => position > index && item.role === "user");
-            const end = nextUser < 0 ? messages.length : nextUser;
-            const replies = messages.slice(index + 1, end);
-            const userIndex = messages.slice(0, index).filter((item) => item.role === "user").length;
-            const entries = ordered.filter((entry, position) => {
-              const runId = entry.activity.run.runId;
-              return !renderedRuns.has(runId) && (runUsers[runId] ? runUsers[runId] === message.id : position === userIndex);
-            });
-            entries.forEach((entry) => renderedRuns.add(entry.activity.run.runId));
-            return <div className="fault-agent-turn" key={message.id}>
-              {element}
-              <div className="fault-agent-reply">
-                {entries.map((entry) => <ActivityTimeline key={entry.activity.run.runId} activity={entry.activity} sync={entry.sync} />)}
-                {replies.map((reply, offset) => reply.role === "assistant" && reply.content ? (
-                  <section className="fault-agent-conclusion" key={reply.id}>
-                    <span className="activity-kicker">FINAL CONCLUSION</span>{messageElements[index + 1 + offset]}
-                  </section>
-                ) : null)}
-              </div>
-            </div>;
-          })}</>;
+            return message?.role === "user" ? <div className="fault-agent-user-message" key={message.id}>{element}</div> : null;
+          })}
+          </div></div>;
         } }}
       />
       {approval}
