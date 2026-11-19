@@ -115,6 +115,7 @@ const statusLabels: Record<string, string> = {
 
 const eventTypeLabels: Record<string, string> = {
   model_inference: "模型分析",
+  reasoning: "推理摘要",
   tool_execution: "工具执行",
   system_step: "系统步骤",
   approval: "人工审批",
@@ -129,6 +130,7 @@ function StatusIcon({ status, type }: { status: string; type: string }) {
   if (type === "tool_execution") return <Wrench className="activity-status-icon" size={16} />;
   if (type === "approval") return <ShieldCheck className="activity-status-icon" size={16} />;
   if (type === "model_inference") return <Bot className="activity-status-icon" size={16} />;
+  if (type === "reasoning") return <Bot className="activity-status-icon" size={16} />;
   return <Activity className="activity-status-icon" size={16} />;
 }
 
@@ -144,6 +146,7 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
   if (item.output?.structuredContent) details.push(["结构化结果", item.output.structuredContent]);
   if (item.output?.content?.length) details.push(["结果内容", item.output.content]);
   if (item.output?.resources?.length) details.push(["资源", item.output.resources]);
+  if (item.type === "reasoning" && Array.isArray(item.output?.summary) && item.output.summary.length) details.push(["推理摘要", item.output.summary]);
   if (item.error) details.push(["错误摘要", item.error]);
   if (content !== undefined) details.splice(0, details.length, [item.type === "tool_execution" ? "工具调用结果" : "模型回复", content]);
   if (!details.length) return null;
@@ -176,7 +179,7 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
                 <div className="activity-event-topline"><span className="activity-event-type">{eventTypeLabels[item.type] ?? "执行步骤"}</span><time>{formatActivityTime(item.startedAt)}</time></div>
                 <div className="activity-event-title-row"><h4>{item.title}</h4><span className={`activity-event-status status-${item.status}`}>{statusLabels[item.status] ?? item.status}</span></div>
                 {item.tool && <p className="activity-tool-label"><Wrench size={12} />{item.tool.name}{item.tool.server ? <span>· {item.tool.server}</span> : null}</p>}
-                {item.approval?.requestId && <p className="activity-approval-ref">审批单 <code>{item.approval.requestId}</code></p>}
+                {item.type === "approval" && item.approval && <p className="activity-approval-ref"><ShieldCheck size={12} />{item.approval.requestId ? <>审批单 <code>{item.approval.requestId}</code></> : "需要人工审批"}</p>}
                 <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[String((item.correlation as { toolCallId?: string } | undefined)?.toolCallId ?? "")] : item.type === "model_inference" ? (item.output?.text ?? messageText[String((item.correlation as { messageId?: string } | undefined)?.messageId ?? "")]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
               </article>
             </li>
@@ -198,7 +201,12 @@ function formatActivityTime(value: string) {
 function readRequest(interrupt: Interrupt): ApprovalRequest | null {
   const metadata = interrupt.metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  return parseApprovalRequest((metadata as Record<string, unknown>).approvalRequest);
+  const metadataRecord = metadata as Record<string, unknown>;
+  const langgraph = metadataRecord.langgraph;
+  const raw = langgraph && typeof langgraph === "object" && !Array.isArray(langgraph)
+    ? (langgraph as Record<string, unknown>).raw
+    : undefined;
+  return parseApprovalRequest(raw) ?? parseApprovalRequest(metadataRecord.approvalRequest);
 }
 
 function ApprovalField({

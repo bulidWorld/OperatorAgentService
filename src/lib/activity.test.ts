@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EventType, type ActivityDeltaEvent, type ActivityMessage, type ActivitySnapshotEvent } from "@ag-ui/client";
-import { reduceActivityDelta, reduceActivitySnapshot } from "./activity";
+import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot } from "./activity";
 
 // Real event content and arrival order from the reported AG-UI stream.
 const messageId = "2d8c3a7d-ce79-4849-94ef-2265bcd51ab1:agent_run";
@@ -92,4 +92,50 @@ test("the real snapshot and activity deltas stay synchronized without the unavai
   assert.equal(activity.content.run.status, "failed");
   assert.equal(activity.content.run.error, "MCP Server 配置文件不存在：/etc/langgraph-service/secrets/MCP_SERVERS_CONFIG");
   assert.equal(activity.content.events[0].status, "failed");
+});
+
+test("accepts reasoning events and keeps only their summary available for display", () => {
+  const content = structuredClone(snapshot.content);
+  content.events.push({
+    id: "reasoning-1",
+    sequence: 1,
+    type: "reasoning",
+    title: "推理摘要",
+    status: "completed",
+    startedAt: "2026-11-19T01:18:30.671Z",
+    updatedAt: "2026-11-19T01:18:30.671Z",
+    finishedAt: "2026-11-19T01:18:31.000Z",
+    input: {},
+    output: { summary: [{ type: "summary_text", text: "正在分析相关信息。" }] },
+    error: null,
+    correlation: { reasoningId: "rs_123" },
+  });
+
+  const parsed = parseAgentRunActivity(content);
+  assert.ok(parsed);
+  assert.equal(parsed.events[0].type, "reasoning");
+});
+
+test("accepts approval events with or without a request id", () => {
+  const content = structuredClone(snapshot.content);
+  content.events.push({
+    id: "approval-1",
+    sequence: 1,
+    type: "approval",
+    title: "等待人工审批",
+    status: "awaiting_approval",
+    startedAt: "2026-11-19T01:18:30.671Z",
+    updatedAt: "2026-11-19T01:18:30.671Z",
+    finishedAt: null,
+    input: {},
+    output: null,
+    error: null,
+    approval: { requestId: null, status: "awaiting_approval" },
+  });
+
+  assert.equal(parseAgentRunActivity(content)?.events[0].type, "approval");
+  content.events[0].approval = { requestId: "approval-123", status: "awaiting_approval" };
+  assert.equal(parseAgentRunActivity(content)?.events[0].approval?.requestId, "approval-123");
+  content.events[0].approval = { requestId: null, status: "completed" };
+  assert.equal(parseAgentRunActivity(content), null);
 });

@@ -21,8 +21,9 @@ properties:
     items:
       oneOf:
         - $ref: '#/$defs/modelInference'
+        - $ref: '#/$defs/reasoning'
         - $ref: '#/$defs/toolExecution'
-        - $ref: '#/$defs/genericEvent'
+        - $ref: '#/$defs/approval'
 $defs:
   timestamp:
     type: string
@@ -158,22 +159,52 @@ $defs:
                 type: string
                 minLength: 1
                 description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
-  genericEvent:
+  reasoning:
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
+        required: [type]
         properties:
           type:
-            enum: [system_step, approval]
-          tool:
-            type: object
+            const: reasoning
           correlation:
             type: object
+            additionalProperties: false
+            required: [reasoningId]
+            properties:
+              reasoningId:
+                type: string
+                minLength: 1
+                description: 对应模型流 reasoning 内容块的 ID。
+          output:
+            oneOf:
+              - type: object
+                additionalProperties: false
+                properties:
+                  summary:
+                    type: array
+                    description: 推理摘要元数据；不得包含隐藏推理正文或加密推理载荷。
+                    items:
+                      type: object
+                      additionalProperties: true
+              - type: 'null'
+  approval:
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        additionalProperties: true
+        required: [type, approval]
+        properties:
+          type:
+            const: approval
           approval:
             type: object
             additionalProperties: true
+            required: [requestId, status]
             properties:
               requestId:
-                type: string
+                oneOf:
+                  - type: string
+                  - type: 'null'
               status:
-                $ref: '#/$defs/status'
+                const: awaiting_approval
