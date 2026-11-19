@@ -8,7 +8,7 @@ document:
   schemaDialect: https://json-schema.org/draft/2020-12/schema
   formatNotes:
   - MCP 没有规定 YAML 接口文档格式；本文件是工具与服务端执行契约，不是 OpenAPI，也不是 MCP SDK 可直接加载的配置。
-  - tools 数组中的对象采用 MCP Tool 字段；每项的 _meta[com.zhiwenxia/approval] 按 api/mtap-tool.schema.yaml 描述风险、交互展示与执行语义。
+  - tools 数组中的对象采用 MCP Tool 字段；每项的 _meta[com.zhiwenxia/approval] 按 models/mtap-tool.schema.yaml 描述风险、交互展示与执行语义。
   - inputSchema 从当前 Zod 定义以 input 模式导出；outputSchema 描述成功结果的核心字段。
   - 本服务执行授权调用者提供的工具，不负责 LangGraph 流程决策。
 server:
@@ -585,7 +585,7 @@ examples:
         field: id
         reason: 必须为正整数
 implementationChanges:
-  - 服务按本文件发布 6 个 MCP Tool；每个 Tool 均在加载时使用 api/mtap-tool.schema.yaml 校验。
+  - 服务按本文件发布 6 个 MCP Tool；每个 Tool 均在加载时使用 models/mtap-tool.schema.yaml 校验。
   - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
   - LangGraphServer 根据 MTAP 元数据编排工具执行策略；conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
   - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。

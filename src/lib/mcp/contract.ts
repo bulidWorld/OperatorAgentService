@@ -117,7 +117,7 @@ function validApprovalInputs(inputs: unknown): inputs is Array<Record<string, un
 export function getMcpContract(): Promise<Contract> {
   contractPromise ??= Promise.all([
     readFile(path.join(process.cwd(), "api/mcp.yaml"), "utf8"),
-    readFile(path.join(process.cwd(), "api/mtap-tool.schema.yaml"), "utf8"),
+    readFile(path.join(process.cwd(), "models/mtap-tool.schema.yaml"), "utf8"),
   ])
     .then(([source, schemaSource]) => {
       const contract = parse(source) as Contract;

@@ -14,6 +14,7 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/scripts/sync_schema.py ./scripts/sync_schema.py
 COPY --from=build --chown=node:node /app/scripts/start.sh ./scripts/start.sh
+COPY --from=build --chown=node:node /app/api ./api
 COPY --from=build --chown=node:node /app/db ./db
 COPY --from=build --chown=node:node /app/config ./config
 RUN mkdir -p /var/service/operator-agent-service/log && chown -R node:node /var/service
