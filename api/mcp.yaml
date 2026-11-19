@@ -451,7 +451,7 @@ tools:
         riskLevel: low
         approvalMode: none
 - name: restart_pod
-  description: 删除指定 Pod；该工具目录策略要求每次调用先由上游 LangGraphServer 创建并完成审批。删除通过当前 Pod UID 条件执行，避免误删同名重建对象。
+  description: 重启指定 Pod；通过当前 Pod UID 条件执行，避免误同名对象。
   inputSchema:
     type: object
     properties:
