@@ -55,8 +55,8 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
   const events = value.events as unknown[];
   if (!events.every((entry) => {
     if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id || !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1 || typeof entry.type !== "string" || typeof entry.title !== "string" || !entry.title || !["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"].includes(String(entry.status)) || typeof entry.startedAt !== "string" || Number.isNaN(Date.parse(entry.startedAt)) || typeof entry.updatedAt !== "string" || Number.isNaN(Date.parse(entry.updatedAt)) || !(entry.finishedAt === null || (typeof entry.finishedAt === "string" && !Number.isNaN(Date.parse(entry.finishedAt)))) || !(entry.error === null || typeof entry.error === "string")) return false;
-    if (entry.type === "model_inference") return isRecord(entry.correlation) && typeof entry.correlation.messageId === "string" && entry.correlation.messageId.length > 0;
-    if (entry.type === "tool_execution") return isRecord(entry.tool) && typeof entry.tool.name === "string" && entry.tool.name.length > 0 && isRecord(entry.correlation) && typeof entry.correlation.toolCallId === "string" && entry.correlation.toolCallId.length > 0;
+    if (entry.type === "model_inference") return entry.correlation === undefined || (isRecord(entry.correlation) && typeof entry.correlation.messageId === "string" && entry.correlation.messageId.length > 0);
+    if (entry.type === "tool_execution") return isRecord(entry.tool) && typeof entry.tool.name === "string" && entry.tool.name.length > 0 && (entry.correlation === undefined || (isRecord(entry.correlation) && typeof entry.correlation.toolCallId === "string" && entry.correlation.toolCallId.length > 0));
     return ["system_step", "approval"].includes(entry.type);
   })) return null;
   return value as unknown as AgentRunActivity;

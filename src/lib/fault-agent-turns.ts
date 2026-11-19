@@ -9,6 +9,7 @@ export function buildFaultAgentTurns(
   activities: Record<string, RunEntry>,
   runUsers: Record<string, string>,
   results: Record<string, string>,
+  errors: Record<string, string> = {},
 ) {
   const turns: Array<{ user: { id: string; content: string }; runs: RunEntry[]; reply: string }> = [];
   const owners = { ...runUsers };
@@ -32,6 +33,11 @@ export function buildFaultAgentTurns(
   for (const [runId, reply] of Object.entries(results)) {
     const turn = turns.find((item) => item.user.id === owners[runId]);
     if (turn && reply.trim()) turn.reply = reply;
+  }
+  // RUN_ERROR has no runId of its own in AG-UI; errors are keyed by the active runId by the subscriber.
+  for (const [runId, error] of Object.entries(errors)) {
+    const turn = turns.find((item) => item.user.id === owners[runId]);
+    if (turn && error.trim()) turn.reply = error;
   }
   return turns;
 }

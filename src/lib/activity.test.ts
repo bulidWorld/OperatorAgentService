@@ -1,0 +1,95 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { EventType, type ActivityDeltaEvent, type ActivityMessage, type ActivitySnapshotEvent } from "@ag-ui/client";
+import { reduceActivityDelta, reduceActivitySnapshot } from "./activity";
+
+// Real event content and arrival order from the reported AG-UI stream.
+const messageId = "2d8c3a7d-ce79-4849-94ef-2265bcd51ab1:agent_run";
+const snapshot: ActivitySnapshotEvent = {
+  type: EventType.ACTIVITY_SNAPSHOT,
+  timestamp: 1795051110661,
+  messageId,
+  activityType: "agent_run",
+  content: {
+    schemaVersion: 1,
+    run: {
+      runId: "05504594-6867-4bc6-9591-09539fee9ef3",
+      threadId: "2d8c3a7d-ce79-4849-94ef-2265bcd51ab1",
+      status: "running",
+      startedAt: "2026-11-19T01:18:30.606Z",
+      updatedAt: "2026-11-19T01:18:30.606Z",
+      finishedAt: null,
+      error: null,
+    },
+    events: [],
+  },
+};
+
+const deltas: ActivityDeltaEvent[] = [
+  {
+    type: EventType.ACTIVITY_DELTA,
+    timestamp: 1795051110671,
+    messageId,
+    activityType: "agent_run",
+    patch: [
+      {
+        op: "add",
+        path: "/events/-",
+        value: {
+          id: "model_inference-36a1830347bd408e9d63de51573b824e",
+          sequence: 1,
+          type: "model_inference",
+          title: "大模型回复",
+          status: "running",
+          startedAt: "2026-11-19T01:18:30.671Z",
+          updatedAt: "2026-11-19T01:18:30.671Z",
+          finishedAt: null,
+          input: {},
+          output: null,
+          error: null,
+        },
+      },
+      { op: "replace", path: "/run/updatedAt", value: "2026-11-19T01:18:30.671Z" },
+    ],
+  },
+  {
+    type: EventType.ACTIVITY_DELTA,
+    timestamp: 1795051112451,
+    messageId,
+    activityType: "agent_run",
+    patch: [
+      { op: "replace", path: "/events/0/status", value: "failed" },
+      { op: "replace", path: "/events/0/finishedAt", value: "2026-11-19T01:18:32.451Z" },
+      { op: "replace", path: "/events/0/updatedAt", value: "2026-11-19T01:18:32.451Z" },
+      { op: "replace", path: "/run/updatedAt", value: "2026-11-19T01:18:32.451Z" },
+    ],
+  },
+  {
+    type: EventType.ACTIVITY_DELTA,
+    timestamp: 1795051112452,
+    messageId,
+    activityType: "agent_run",
+    patch: [
+      { op: "replace", path: "/run/status", value: "failed" },
+      { op: "replace", path: "/run/updatedAt", value: "2026-11-19T01:18:32.452Z" },
+      { op: "replace", path: "/run/finishedAt", value: "2026-11-19T01:18:32.452Z" },
+      { op: "replace", path: "/run/error", value: "MCP Server 配置文件不存在：/etc/langgraph-service/secrets/MCP_SERVERS_CONFIG" },
+    ],
+  },
+];
+
+test("the real snapshot and activity deltas stay synchronized without the unavailable notice", () => {
+  let state = reduceActivitySnapshot(null, snapshot);
+  assert.equal(state.sync, "ready");
+
+  for (const delta of deltas) {
+    state = reduceActivityDelta(state.activity, delta, state.sync);
+    assert.equal(state.sync, "ready");
+    assert.ok(state.activity);
+  }
+
+  const activity = state.activity as ActivityMessage;
+  assert.equal(activity.content.run.status, "failed");
+  assert.equal(activity.content.run.error, "MCP Server 配置文件不存在：/etc/langgraph-service/secrets/MCP_SERVERS_CONFIG");
+  assert.equal(activity.content.events[0].status, "failed");
+});

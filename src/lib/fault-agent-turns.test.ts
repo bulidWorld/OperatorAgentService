@@ -25,6 +25,18 @@ test("uses run result when no final text event was emitted, without duplicating 
   assert.equal(turns[0].reply, "最终结论");
 });
 
+test("renders RUN_ERROR as the final reply for its run's user turn", () => {
+  const turns = buildFaultAgentTurns(
+    [{ id: "u1", role: "user", content: "排查" }],
+    {},
+    { r1: "u1" },
+    {},
+    { r1: "MCP Server 配置文件不存在" },
+  );
+
+  assert.equal(turns[0].reply, "MCP Server 配置文件不存在");
+});
+
 test("hydrates run ownership from activity history and retains a pending next turn", () => {
   const run = activity("r1");
   const turns = buildFaultAgentTurns([{ id: "u1", role: "user", content: "排查" }, { id: "activity", role: "activity", content: run }, { id: "a1", role: "assistant", content: "完成" }, { id: "u2", role: "user", content: "继续" }], { r1: { activity: run, sync: "ready" } }, {}, {});

@@ -18,10 +18,12 @@ import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [runUsers, setRunUsers] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, string>>({});
+  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
   const [toolResults, setToolResults] = useState<Record<string, unknown>>({});
   const [messageText, setMessageText] = useState<Record<string, string>>({});
   const messageTextCache = useRef<Record<string, string>>({});
+  const activeRunId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
@@ -29,9 +31,11 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     setActivities({});
     setRunUsers({});
     setResults({});
+    setRunErrors({});
     setToolResults({});
     setMessageText({});
     messageTextCache.current = {};
+    activeRunId.current = null;
     const save = (message: ActivityMessage | null, sync: ActivitySyncState) => {
       const parsed = parseAgentRunActivity(message?.content);
       if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync } }));
@@ -54,6 +58,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     hydrate(agent.messages);
     const subscription = agent.subscribe({
       onRunStartedEvent: ({ event, messages }) => {
+        activeRunId.current = event.runId;
         const user = [...messages].reverse().find((message) => message.role === "user");
         if (user) setRunUsers((current) => ({ ...current, [event.runId]: user.id }));
       },
@@ -61,6 +66,12 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
         if (typeof event.result === "string" && event.result.trim()) {
           const text = event.result;
           setResults((current) => ({ ...current, [event.runId]: text }));
+        }
+      },
+      onRunErrorEvent: ({ event }) => {
+        const runId = activeRunId.current;
+        if (runId && typeof event.message === "string" && event.message.trim()) {
+          setRunErrors((current) => ({ ...current, [runId]: event.message }));
         }
       },
       onMessagesSnapshotEvent: ({ event }) => hydrate(event.messages),
@@ -90,7 +101,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     return () => subscription.unsubscribe();
   }, [agent, isReady, agent.threadId]);
 
-  return { activities, runUsers, results, toolResults, messageText };
+  return { activities, runUsers, results, runErrors, toolResults, messageText };
 }
 
 const statusLabels: Record<string, string> = {
@@ -334,7 +345,7 @@ function ApprovalCard({
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities, runUsers, results, toolResults, messageText } = useAgentActivity(agent, isReady);
+  const { activities, runUsers, results, runErrors, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const approval = useInterrupt({
     renderInChat: false,
@@ -373,7 +384,7 @@ export default function FaultAgent() {
       <CopilotChat
         labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
         messageView={{ children: ({ messages }) => {
-          const turns = buildFaultAgentTurns(messages, activities, runUsers, results);
+          const turns = buildFaultAgentTurns(messages, activities, runUsers, results, runErrors);
           return <div className="fault-agent-conversation">
             {!turns.length && <div className="fault-agent-welcome"><span className="fault-agent-welcome-icon"><Bot size={28} /></span><h3>从一个问题开始排查</h3><p>描述故障现象，或询问近期告警与资源瓶颈。<br />执行过程和分析结果会按轮次保留在这里。</p></div>}
             {turns.map((turn, index) => <section className="fault-agent-turn" key={turn.user.id} aria-label={`第 ${index + 1} 轮对话`}>
