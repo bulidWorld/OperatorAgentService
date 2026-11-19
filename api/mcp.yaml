@@ -3,18 +3,18 @@ document:
   title: OperatorAgentService MCP 工具接口设计
   version: 0.1.0
   status: implemented
-  implementationStatus: Streamable HTTP 工具服务已实现。安全策略和审批交互定义通过每个 MCP Tool 的 _meta[com.zhiwenxia/approval] 元数据提供给远端编排器。
+  implementationStatus: Streamable HTTP 工具服务已实现。工具的安全策略和交互元数据通过每个 MCP Tool 的 _meta[com.zhiwenxia/approval] 字段提供给远端编排器。
   source: src/lib/mcp/server.ts and existing business tools
   schemaDialect: https://json-schema.org/draft/2020-12/schema
   formatNotes:
   - MCP 没有规定 YAML 接口文档格式；本文件是工具与服务端执行契约，不是 OpenAPI，也不是 MCP SDK 可直接加载的配置。
-  - tools 数组中的对象采用 MCP Tool 字段；每项的 _meta[com.zhiwenxia/approval] 按 api/mtap-tool.schema.yaml 描述风险、审批展示与执行语义。
+  - tools 数组中的对象采用 MCP Tool 字段；每项的 _meta[com.zhiwenxia/approval] 按 api/mtap-tool.schema.yaml 描述风险、交互展示与执行语义。
   - inputSchema 从当前 Zod 定义以 input 模式导出；outputSchema 描述成功结果的核心字段。
-  - 本服务执行授权调用者提供的工具，不负责 LangGraph 流程或人工审批决策。
+  - 本服务执行授权调用者提供的工具，不负责 LangGraph 流程决策。
 server:
   name: operator-agent-service
   version: 1.0.0
-  endpoint: /api/mcp
+  endpoint: /api/v1/mcp
   runtime: nodejs
   transport:
     type: streamable-http
@@ -23,7 +23,7 @@ server:
     - '2025-06-18'
     versionPolicy: 支持工具 outputSchema 与 structuredContent 的 2025-06-18、2025-11-25；初始化和后续 MCP-Protocol-Version 请求头均执行版本校验。
     sessionMode: stateless
-    sessionNotes: 不分配 Mcp-Session-Id；每个请求单独鉴权。流程状态与审批决策由远端 LangGraphServer 管理。
+    sessionNotes: 不分配 Mcp-Session-Id；每个请求单独鉴权。流程状态由远端 LangGraphServer 管理。
     post:
       requestContentType: application/json
       accept:
@@ -44,8 +44,7 @@ server:
   capabilities:
     tools:
       listChanged: false
-  instructions: 本服务提供 Kubernetes 和监控工具。调用方应读取每个 Tool 的 _meta[com.zhiwenxia/approval]，并由上游 LangGraphServer 按安全策略和审批定义
-    编排授权和人工审批。元数据是策略输入；MCP 服务仍执行调用者工具权限校验。
+  instructions: 本服务提供 Kubernetes 和监控工具。调用方可根据任务选择并调用合适的工具。工具元数据用于提供安全策略和交互信息；MCP 服务仍执行调用者工具权限校验。
   authentication:
     mode: private-service-bearer
     notes: 首版面向受控服务间调用；生产环境应只向受信任的 LangGraphServer 发放带 mcp:restart 的凭证。此模式不宣称实现完整 MCP OAuth 授权发现；要求 OAuth 的客户端需后续适配。
@@ -112,8 +111,8 @@ executionRules:
   query_pods:
   - 查询所有命名空间的 Pod；containerName 省略或为空时返回全部 Pod，否则按 Pod 中任一容器名称不区分大小写的子串匹配过滤。
   restart_pod:
-  - 本工具执行 Pod 删除；上游 LangGraphServer 根据 MTAP 审批元数据完成审批编排后，使用具备 mcp:restart 权限的身份调用。
-  - MCP 服务不保存或验证上游审批记录；服务仍验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
+  - 本工具通过删除指定 Pod 触发重启；调用时使用具备 mcp:restart 权限的身份。
+  - 服务验证调用者工具权限，并使用 Kubernetes UID precondition 保护同名重建的 Pod。
   - 删除成功仅表示 Pod 已删除，不保证控制器重建成功。
 tools:
 - name: query_alerts
@@ -501,8 +500,8 @@ tools:
         riskLevel: high
         approvalMode: required
       presentation:
-        title: 审批 Pod 重启
-        description: 删除指定 Pod 会导致其短暂不可用；是否恢复取决于控制器配置。请核对目标和影响后批准。
+        title: 重启 Pod
+        description: 删除指定 Pod 会导致其短暂不可用；是否恢复取决于控制器配置。
         inputs:
         - key: impact_confirmed
           type: confirm
@@ -535,7 +534,7 @@ examples:
       serverInfo:
         name: operator-agent-service
         version: 1.0.0
-      instructions: 诊断单条告警先调用 query_alert_details；工具审批由远端 LangGraphServer 根据工具 MTAP 审批元数据编排。
+      instructions: 诊断单条告警时先调用 query_alert_details 获取详情，再根据结果选择后续工具。
   initializedNotification:
     jsonrpc: '2.0'
     method: notifications/initialized
@@ -544,7 +543,7 @@ examples:
     id: 2
     method: tools/list
     params: {}
-  listToolsResponseNote: result.tools 从本文件 tools 数组中按权限及启用状态筛选，并原样返回 MTAP 审批元数据。
+  listToolsResponseNote: result.tools 从本文件 tools 数组中按权限及启用状态筛选，并原样返回 MTAP 元数据。
   callRequest:
     jsonrpc: '2.0'
     id: 3
@@ -588,6 +587,6 @@ examples:
 implementationChanges:
   - 服务按本文件发布 6 个 MCP Tool；每个 Tool 均在加载时使用 api/mtap-tool.schema.yaml 校验。
   - Streamable HTTP 入口负责工具发现、调用、版本协商、结构化结果和 caller/resource 权限检查。
-  - LangGraphServer 是流程和审批策略的唯一编排方；required 工具在审批获批前不得调用，conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
+  - LangGraphServer 根据 MTAP 元数据编排工具执行策略；conditional 工具须按 defaultAction 处理无法判断的情况。元数据不能代替调用者身份授权。
   - 重启工具执行 Pod UID 条件删除；仅向受信任 LangGraphServer 发放 mcp:restart 权限。
   - 运行 npm run typecheck 和 npm run build 验证类型和 Next.js standalone 路由打包。

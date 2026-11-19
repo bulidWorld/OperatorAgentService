@@ -2,11 +2,11 @@
 
 [openapi.yaml](openapi.yaml) 是接口契约，可导入 Swagger UI、Redoc 或 API 客户端查看。路由由 Next.js App Router 提供。OpenAPI 只描述本服务暴露的接口，不包含服务向上游发起的请求。
 
-[mcp.yaml](mcp.yaml) 是 MCP 工具接口契约，包含 Streamable HTTP 传输、JSON-RPC 调用示例、输入/输出 JSON Schema 和每个工具的风险元数据。`tools` 数组采用 MCP Tool 格式，`_meta.security` 将 riskLevel、approvalMode、approvalRole 和 defaultAction 提供给 LangGraphServer；它不是 OpenAPI 文档。Next.js `/api/mcp` 路由按此文件动态提供工具定义。
+[mcp.yaml](mcp.yaml) 是 MCP 工具接口契约，包含 Streamable HTTP 传输、JSON-RPC 调用示例、输入/输出 JSON Schema 和每个工具的风险元数据。`tools` 数组采用 MCP Tool 格式，`_meta.security` 将 riskLevel、approvalMode、approvalRole 和 defaultAction 提供给 LangGraphServer；它不是 OpenAPI 文档。Next.js `/api/v1/mcp` 路由按此文件动态提供工具定义。
 
 `_meta.approval` 始终存在；当 `approvalMode=none` 时必须是空对象 `{}`，仅 `required` 或 `conditional` 模式提供版本化的审批交互定义。
 
-MCP 服务通过 `POST /api/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token `token` 和授权范围 `tools`。`tools` 使用 `mcp:read`、`mcp:restart` 权限名，或写 `"ALL"` 表示拥有全部工具权限；持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
+MCP 服务通过 `POST /api/v1/mcp` 提供无状态 Streamable HTTP。调用前在 Secret 中设置 `MCP_CALLERS_JSON`：每个调用者须配置 `callerId`、最少 32 字节随机 bearer token `token` 和授权范围 `tools`。`tools` 使用 `mcp:read`、`mcp:restart` 权限名，或写 `"ALL"` 表示拥有全部工具权限；持有工具权限即视为拥有对应的 Kubernetes Pod 访问能力，不按 namespace 细分。建议只向受信任的 LangGraphServer 发放 `mcp:restart` 权限。
 
 示例（客户端在 `Authorization: Bearer ...` 中发送与配置一致的原始 token）：
 

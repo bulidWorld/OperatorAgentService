@@ -25,13 +25,13 @@ npm start
 
 ## MCP 与远端 Agent 接入
 
-资源告警页集成 CopilotKit 故障分析助手，并为每条告警提供独立诊断对话。前端请求由本服务的 `/api/copilotkit` 转发给远端 AG-UI endpoint；`LANGGRAPH_DEPLOYMENT_URL` 配置该兼容 AG-UI 协议的 HTTP 地址。远端 endpoint 负责连接 `k8s_ops_agent` graph。本服务不运行模型或编排 Agent，只通过 `/api/mcp` 提供 Kubernetes、告警、监控和网络探测工具。工具输入输出及风险元数据见 [api/mcp.yaml](api/mcp.yaml)；工具调用和审批流程由远端 LangGraph 编排，MCP 服务执行调用者授权范围内的操作。
+资源告警页集成 CopilotKit 故障分析助手，并为每条告警提供独立诊断对话。前端请求由本服务的 `/api/copilotkit` 转发给远端 AG-UI endpoint；`LANGGRAPH_DEPLOYMENT_URL` 配置该兼容 AG-UI 协议的 HTTP 地址。远端 endpoint 负责连接 `k8s_ops_agent` graph。本服务不运行模型或编排 Agent，只通过 `/api/v1/mcp` 提供 Kubernetes、告警、监控和网络探测工具。工具输入输出及风险元数据见 [api/mcp.yaml](api/mcp.yaml)；工具调用和审批流程由远端 LangGraph 编排，MCP 服务执行调用者授权范围内的操作。
 
 命令白名单位于 [config/network-diagnostics.json](config/network-diagnostics.json)，每个探测类型配置固定的可执行文件绝对路径、参数模板和超时时间。工具仅接受 `icmp`、`tcp`、`http` 三类配置，不接受模型提供的命令或额外参数；子进程使用 `execFile` 且关闭 shell，目标 host、端口和 URL 经过校验。修改白名单后需重新构建镜像，或将配置文件挂载到容器并设置 `NETWORK_DIAGNOSTICS_CONFIG`。镜像会安装 `ping`、`nc` 和 `curl`。Kubernetes 资源查询还需部署应用 RBAC。
 
 Kubernetes 部署通过 ConfigMap 的 `LANGGRAPH_DEPLOYMENT_URL` 配置远端 AG-UI 兼容 endpoint。该地址必须接收 AG-UI HTTP 请求，graph 选择由 endpoint 负责。将 `deploy/0990-operator-agent-ServiceAccount.yaml` 应用后，ServiceAccount 可 list/watch Events、get/list Pods、Services、Endpoints、EndpointSlices、NetworkPolicies、Nodes，并 get `pods/log`。另有独立 ClusterRole 仅授予所有 namespace 下 `pods` 的 `delete`，供 MCP `restart_pod` 工具使用；不授予其他 Kubernetes 写权限。是否审批由远端 LangGraph 编排决定。
 
-MCP 入口需要配置调用者凭证，否则 `/api/mcp` 返回 503。授权调用者的 JSON 数组配置在 [deploy/0980-operator-agent-ConfigMap.yaml](deploy/0980-operator-agent-ConfigMap.yaml) 的 `MCP_CALLERS_JSON` 字段中：
+MCP 入口需要配置调用者凭证，否则 `/api/v1/mcp` 返回 503。授权调用者的 JSON 数组配置在 [deploy/0980-operator-agent-ConfigMap.yaml](deploy/0980-operator-agent-ConfigMap.yaml) 的 `MCP_CALLERS_JSON` 字段中：
 
 每个调用者配置原始 bearer token 和工具 scope（`mcp:*` 权限名或 `"ALL"` 通配）；客户端与服务端使用同一 token 直接比对，token 与远端 LangGraph Server 的客户端配置保持一致。凭证字段格式见 [api/README.md](api/README.md)。
 
