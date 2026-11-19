@@ -12,11 +12,16 @@ import type {
 } from "@/lib/approval";
 import { parseApprovalRequest, validateApprovalAnswers } from "@/lib/approval";
 import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, type AgentRunEvent, type AgentRunActivity, type ActivitySyncState } from "@/lib/activity";
+import { useRef } from "react";
+import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [runUsers, setRunUsers] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, string>>({});
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
+  const [toolResults, setToolResults] = useState<Record<string, unknown>>({});
+  const [messageText, setMessageText] = useState<Record<string, string>>({});
+  const messageTextCache = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (!isReady) return;
@@ -24,6 +29,9 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     setActivities({});
     setRunUsers({});
     setResults({});
+    setToolResults({});
+    setMessageText({});
+    messageTextCache.current = {};
     const save = (message: ActivityMessage | null, sync: ActivitySyncState) => {
       const parsed = parseAgentRunActivity(message?.content);
       if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync } }));
@@ -56,6 +64,15 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
         }
       },
       onMessagesSnapshotEvent: ({ event }) => hydrate(event.messages),
+      onTextMessageContentEvent: ({ event, textMessageBuffer }) => {
+        const messages = appendMessageText(messageTextCache.current, event.messageId, event.delta);
+        const currentBuffer = textMessageBuffer || messages[event.messageId];
+        messageTextCache.current = { ...messages, [event.messageId]: currentBuffer };
+        setMessageText((current) => ({ ...current, [event.messageId]: currentBuffer }));
+      },
+      onToolCallResultEvent: ({ event }) => {
+        setToolResults((current) => storeToolResult(current, event.toolCallId, event.content));
+      },
       onActivitySnapshotEvent: ({ event }) => {
         if (event.activityType !== "agent_run") return;
         const result = reduceActivitySnapshot(snapshots.get(event.messageId)?.activity ?? null, event);
@@ -73,7 +90,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     return () => subscription.unsubscribe();
   }, [agent, isReady, agent.threadId]);
 
-  return { activities, runUsers, results };
+  return { activities, runUsers, results, toolResults, messageText };
 }
 
 const statusLabels: Record<string, string> = {
@@ -109,7 +126,7 @@ function displayValue(value: unknown): string {
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 
-function EventDetails({ item }: { item: AgentRunEvent }) {
+function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?: unknown; onOpen: (title: string, content: unknown) => void }) {
   const details: Array<[string, unknown]> = [];
   if (item.input && Object.keys(item.input).length) details.push(["输入摘要", item.input]);
   if (item.output?.text) details.push(["回复", item.output.text]);
@@ -117,11 +134,13 @@ function EventDetails({ item }: { item: AgentRunEvent }) {
   if (item.output?.content?.length) details.push(["结果内容", item.output.content]);
   if (item.output?.resources?.length) details.push(["资源", item.output.resources]);
   if (item.error) details.push(["错误摘要", item.error]);
+  if (content !== undefined) details.splice(0, details.length, [item.type === "tool_execution" ? "工具调用结果" : "模型回复", content]);
   if (!details.length) return null;
-  return <details className="activity-event-details"><summary>查看执行详情</summary><div>{details.map(([label, value]) => <section key={label}><b>{label}</b><pre>{displayValue(value)}</pre></section>)}</div></details>;
+  return <button type="button" className="activity-event-details-button" onClick={() => onOpen(details[0][0], details[0][1])}>查看详细内容</button>;
 }
 
-function ActivityTimeline({ activity, sync, expanded, onExpandedChange }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void }) {
+function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string> }) {
+  const [detail, setDetail] = useState<{ title: string; content: unknown } | null>(null);
   if (!activity) {
     return <div className="activity-empty-state compact"><span><Clock3 size={17} /></span><p>执行时间线暂不可用。</p></div>;
   }
@@ -147,13 +166,14 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange }: { acti
                 <div className="activity-event-title-row"><h4>{item.title}</h4><span className={`activity-event-status status-${item.status}`}>{statusLabels[item.status] ?? item.status}</span></div>
                 {item.tool && <p className="activity-tool-label"><Wrench size={12} />{item.tool.name}{item.tool.server ? <span>· {item.tool.server}</span> : null}</p>}
                 {item.approval?.requestId && <p className="activity-approval-ref">审批单 <code>{item.approval.requestId}</code></p>}
-                <EventDetails item={item} />
+                <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[String((item.correlation as { toolCallId?: string } | undefined)?.toolCallId ?? "")] : item.type === "model_inference" ? (item.output?.text ?? messageText[String((item.correlation as { messageId?: string } | undefined)?.messageId ?? "")]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
               </article>
             </li>
           ))}
         </ol>
       )}
       </details>
+      {detail && <div className="activity-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null); }}><section className="activity-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-detail-title"><header><h3 id="activity-detail-title">{detail.title}</h3><button type="button" aria-label="关闭" onClick={() => setDetail(null)}>×</button></header><pre>{displayValue(detail.content)}</pre></section></div>}
     </section>
   );
 }
@@ -314,7 +334,7 @@ function ApprovalCard({
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities, runUsers, results } = useAgentActivity(agent, isReady);
+  const { activities, runUsers, results, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const approval = useInterrupt({
     renderInChat: false,
@@ -360,7 +380,7 @@ export default function FaultAgent() {
               <div className="fault-agent-question"><span className="fault-agent-turn-label">你</span><p>{turn.user.content}</p></div>
               <div className="fault-agent-reply">
                 <div className="fault-agent-reply-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><b>故障分析助手</b><span>第 {index + 1} 轮</span></div>
-                {turn.runs.map(({ activity, sync }) => <ActivityTimeline key={activity.run.runId} activity={activity} sync={sync} expanded={expandedRuns[activity.run.runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))} />)}
+                {turn.runs.map(({ activity, sync }) => <ActivityTimeline key={activity.run.runId} activity={activity} sync={sync} toolResults={toolResults} messageText={messageText} expanded={expandedRuns[activity.run.runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))} />)}
                 {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
               </div>
             </section>)}

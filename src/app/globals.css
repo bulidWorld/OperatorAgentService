@@ -1324,6 +1324,13 @@ footer > span:first-child {
 .activity-event-details > div { display: grid; gap: 9px; padding-top: 9px; }
 .activity-event-details section b { display: block; margin-bottom: 4px; color: #8693a1; font-size: 10px; font-weight: 650; }
 .activity-event-details pre { max-height: 220px; margin: 0; overflow: auto; padding: 9px 10px; border: 1px solid #edf1f4; border-radius: 7px; background: #f8fafc; color: #4b5c70; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-event-details-button { margin-top: 8px; padding: 0; border: 0; background: transparent; color: #607b91; font: inherit; font-size: 10px; cursor: pointer; }
+.activity-detail-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 30, 43, .48); }
+.activity-detail-dialog { width: min(720px, 100%); max-height: min(80vh, 720px); overflow: hidden; border: 1px solid #e5ebf1; border-radius: 14px; background: white; box-shadow: 0 20px 60px rgba(12, 27, 42, .24); }
+.activity-detail-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #edf1f5; }
+.activity-detail-dialog h3 { margin: 0; color: #26394e; font-size: 14px; }
+.activity-detail-dialog header button { border: 0; background: transparent; color: #718196; font-size: 24px; cursor: pointer; }
+.activity-detail-dialog pre { max-height: calc(80vh - 70px); margin: 0; overflow: auto; padding: 18px; color: #4b5c70; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .activity-empty-state { display: flex; align-items: center; gap: 11px; padding: 19px; color: #8593a2; }
 .activity-empty-state > span { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid #e7edf2; border-radius: 10px; background: #f8fafc; color: #7c91a4; }
 .activity-empty-state p { margin: 0; font-size: 11px; line-height: 1.55; }

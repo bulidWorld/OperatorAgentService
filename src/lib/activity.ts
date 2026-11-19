@@ -42,15 +42,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
-  if (!isRecord(value) || !Number.isInteger(value.schemaVersion) || !isRecord(value.run) || !Array.isArray(value.events)) return null;
+  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.run) || !Array.isArray(value.events)) return null;
   const run = value.run;
   if (
-    typeof run.runId !== "string" || typeof run.threadId !== "string" ||
+    typeof run.runId !== "string" || !run.runId || typeof run.threadId !== "string" || !run.threadId ||
     !["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"].includes(String(run.status)) ||
-    typeof run.startedAt !== "string" || typeof run.updatedAt !== "string"
+    typeof run.startedAt !== "string" || Number.isNaN(Date.parse(run.startedAt)) ||
+    typeof run.updatedAt !== "string" || Number.isNaN(Date.parse(run.updatedAt)) ||
+    !(run.finishedAt === null || (typeof run.finishedAt === "string" && !Number.isNaN(Date.parse(run.finishedAt)))) ||
+    !(run.error === null || typeof run.error === "string")
   ) return null;
   const events = value.events as unknown[];
-  if (!events.every((entry) => isRecord(entry) && typeof entry.id === "string" && Number.isInteger(entry.sequence) && typeof entry.type === "string" && typeof entry.title === "string" && typeof entry.status === "string")) return null;
+  if (!events.every((entry) => {
+    if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id || !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1 || typeof entry.type !== "string" || typeof entry.title !== "string" || !entry.title || !["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"].includes(String(entry.status)) || typeof entry.startedAt !== "string" || Number.isNaN(Date.parse(entry.startedAt)) || typeof entry.updatedAt !== "string" || Number.isNaN(Date.parse(entry.updatedAt)) || !(entry.finishedAt === null || (typeof entry.finishedAt === "string" && !Number.isNaN(Date.parse(entry.finishedAt)))) || !(entry.error === null || typeof entry.error === "string")) return false;
+    if (entry.type === "model_inference") return isRecord(entry.correlation) && typeof entry.correlation.messageId === "string" && entry.correlation.messageId.length > 0;
+    if (entry.type === "tool_execution") return isRecord(entry.tool) && typeof entry.tool.name === "string" && entry.tool.name.length > 0 && isRecord(entry.correlation) && typeof entry.correlation.toolCallId === "string" && entry.correlation.toolCallId.length > 0;
+    return ["system_step", "approval"].includes(entry.type);
+  })) return null;
   return value as unknown as AgentRunActivity;
 }
 
