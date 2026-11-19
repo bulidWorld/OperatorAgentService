@@ -1,0 +1,331 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://zhiwenxia.org/schemas/approve-v1.schema.yaml
+title: MTAP V1.0 — AG-UI 人工审批请求与中断事件 Schema
+description: >-
+  定义 RUN_FINISHED.outcome.type=interrupt 中携带的 MTAP 审批请求，以及其
+  LangGraph interrupt 元数据结构。AG-UI 事件及 interrupt 外层字段依照
+  api/mtap-agui-resume.openapi.yaml；此 Schema 聚焦 interrupt 内的审批业务载荷
+type: object
+required: [type, timestamp, threadId, runId, outcome]
+properties:
+  type:
+    const: RUN_FINISHED
+    description: AG-UI 运行结束事件类型。
+  timestamp:
+    type: integer
+    minimum: 0
+    description: AG-UI 事件时间戳，Unix 毫秒。
+  threadId:
+    type: string
+    minLength: 1
+    description: AG-UI 会话标识，须与恢复请求中的 threadId 相同。
+  runId:
+    type: string
+    minLength: 1
+    description: 产生审批中断并结束的原始运行标识；恢复时使用新的 runId。
+  outcome:
+    $ref: '#/$defs/interruptOutcome'
+  usage:
+    type: array
+    description: 可选的模型用量统计，不属于审批业务数据。
+    items:
+      type: object
+      additionalProperties: true
+      properties:
+        provider: {type: string}
+        model: {type: string}
+        inputTokens: {type: integer, minimum: 0}
+        outputTokens: {type: integer, minimum: 0}
+        totalTokens: {type: integer, minimum: 0}
+        reasoningTokens: {type: integer, minimum: 0}
+        cachedInputTokens: {type: integer, minimum: 0}
+        cacheWriteInputTokens: {type: integer, minimum: 0}
+additionalProperties: true
+$defs:
+  interruptOutcome:
+    type: object
+    required: [type, interrupts]
+    properties:
+      type:
+        const: interrupt
+        description: AG-UI 运行以中断等待的终态。
+      interrupts:
+        type: array
+        minItems: 1
+        description: LangGraph 中断列表；每项的 id 是恢复接口使用的 interruptId。
+        items:
+          $ref: '#/$defs/approvalInterrupt'
+    additionalProperties: true
+  approvalInterrupt:
+    type: object
+    required: [id, reason, metadata]
+    properties:
+      id:
+        type: string
+        minLength: 1
+        description: LangGraph Interrupt.id；必须精确传入恢复接口 resume[].interruptId。
+      reason:
+        type: string
+        minLength: 1
+        description: 中断原因标识；审批请求示例为 langgraph:interrupt。
+      metadata:
+        type: object
+        required: [langgraph]
+        properties:
+          langgraph:
+            type: object
+            required: [raw]
+            properties:
+              raw:
+                $ref: '#/$defs/approvalRequest'
+              ns:
+                description: LangGraph 可选命名空间；示例为 null。
+                oneOf:
+                  - type: array
+                    items: {type: string}
+                  - type: 'null'
+              resumable:
+                description: LangGraph 可选恢复标记；示例为 null。
+                oneOf:
+                  - type: boolean
+                  - type: 'null'
+              when:
+                description: LangGraph 可选中断条件信息；示例为 null。
+                oneOf:
+                  - type: string
+                  - type: 'null'
+            additionalProperties: true
+        additionalProperties: true
+    additionalProperties: true
+  approvalRequest:
+    title: MTAP 运行时审批请求
+    type: object
+    required:
+      - type
+      - schema_version
+      - request_id
+      - action
+      - title
+      - rationale
+      - change_plan
+      - evidence
+      - inputs
+      - mcp_server
+      - tool_name
+      - execution
+    properties:
+      type:
+        const: approval_request
+        description: LangGraph interrupt raw 中的 MTAP 审批载荷类型。
+      schema_version:
+        type: integer
+        const: 1
+        description: 审批请求载荷版本；不兼容变更时递增。
+      request_id:
+        type: string
+        format: uuid
+        description: MTAP 审批请求唯一标识；恢复 ApprovalDecision.request_id 必须与之相同。
+      action:
+        type: string
+        minLength: 1
+        maxLength: 256
+        description: 稳定的业务动作标识，对应获批后执行的动作，如 restart_pod。
+      title:
+        type: string
+        minLength: 1
+        maxLength: 200
+        description: 面向审批人的标题。
+      rationale:
+        type: string
+        minLength: 1
+        maxLength: 4000
+        description: 本次操作原因及影响说明。
+      change_plan:
+        type: string
+        minLength: 1
+        description: 本次变更计划的 JSON 字符串；解析后应作为只读计划展示，不能由审批答案覆盖。
+      evidence:
+        type: array
+        maxItems: 100
+        description: 支持审批判断的证据条目；可为空数组。
+        items:
+          $ref: '#/$defs/evidenceItem'
+      inputs:
+        type: array
+        maxItems: 64
+        description: 动态审批表单定义；key 须唯一；批准时答案按 OpenAPI ApprovalDecision.answers 提交，拒绝时无需答案。
+        items:
+          $ref: '#/$defs/approvalInput'
+      mcp_server:
+        type: string
+        minLength: 1
+        maxLength: 256
+        description: 原始 MCP 服务标识，用于将审批请求关联到服务端保存的工具调用。
+      tool_name:
+        type: string
+        minLength: 1
+        maxLength: 256
+        description: 原始 MCP 工具名称；批准后执行服务端保存的原调用。
+      execution:
+        $ref: '#/$defs/execution'
+    additionalProperties: false
+  evidenceItem:
+    title: 审批证据
+    description: 可扩展证据对象；空对象数组表示暂无额外证据。
+    type: object
+    additionalProperties: true
+  approvalInput:
+    title: 审批表单字段
+    type: object
+    required: [key, type, label, required]
+    properties:
+      key:
+        type: string
+        minLength: 1
+        maxLength: 100
+        pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+        description: 答案对象中的字段键；同一 inputs 中必须唯一。
+      type:
+        type: string
+        enum: [confirm, single_select, multi_select, text]
+        description: 控件类型；对应答案分别为 boolean、string、string[]、string。
+      label:
+        type: string
+        minLength: 1
+        maxLength: 200
+        description: 面向审批人的字段标签。
+      required:
+        type: boolean
+        description: 批准时是否必须提供答案；拒绝时无需填写。
+      description:
+        type: string
+        maxLength: 1000
+        description: 字段辅助说明。
+      placeholder:
+        type: string
+        maxLength: 500
+        description: text 控件的输入提示，仅适用于 type=text。
+      mustBeTrue:
+        type: boolean
+        description: confirm 控件约束；为 true 时必须同时 required=true，批准答案必须为 true。
+      options:
+        type: array
+        minItems: 1
+        maxItems: 100
+        description: 单选或多选候选值；同一列表中的 value 必须唯一。
+        items:
+          $ref: '#/$defs/approvalOption'
+      maxLength:
+        type: integer
+        minimum: 1
+        maximum: 10000
+        description: text 答案允许的最大字符数。
+    additionalProperties: false
+    allOf:
+      - if:
+          properties:
+            type: {const: confirm}
+          required: [type]
+        then:
+          properties:
+            options: false
+            maxLength: false
+            placeholder: false
+          allOf:
+            - if:
+                properties:
+                  mustBeTrue: {const: true}
+                required: [mustBeTrue]
+              then:
+                properties:
+                  required: {const: true}
+        else:
+          properties:
+            mustBeTrue: false
+      - if:
+          properties:
+            type: {enum: [single_select, multi_select]}
+          required: [type]
+        then:
+          required: [options]
+          properties:
+            maxLength: false
+            placeholder: false
+        else:
+          properties:
+            options: false
+      - if:
+          properties:
+            type: {const: text}
+          required: [type]
+        then: {}
+        else:
+          properties:
+            maxLength: false
+            placeholder: false
+  approvalOption:
+    type: object
+    required: [value, label]
+    properties:
+      value:
+        type: string
+        minLength: 1
+        maxLength: 200
+        description: 提交到 answers 的稳定机器值。
+      label:
+        type: string
+        minLength: 1
+        maxLength: 200
+        description: 前端展示文案，不作为答案值。
+    additionalProperties: false
+  execution:
+    title: 审批执行门禁
+    type: object
+    required: [mode, onApproved, onRejected]
+    properties:
+      mode:
+        const: approval_gate
+        description: 获批前暂停原工具调用的门禁模式。
+      onApproved:
+        const: execute_original_call
+        description: 校验并记录批准后执行服务端保存的原始工具及参数。
+      onRejected:
+        const: cancel_call
+        description: 拒绝后取消原始工具调用，不执行操作。
+    additionalProperties: false
+examples:
+  - type: RUN_FINISHED
+    timestamp: 1795082752288
+    threadId: 4c178053-5e90-479f-b507-eee0897b5186
+    runId: b6e129f3-adab-4502-8c76-391537efb315
+    outcome:
+      type: interrupt
+      interrupts:
+        - id: 7a160b0affab2191bbb2bb10f06e7649
+          reason: langgraph:interrupt
+          metadata:
+            langgraph:
+              raw:
+                type: approval_request
+                schema_version: 1
+                request_id: 2d00162f-8c49-57a3-a852-9c1fa7636cf4
+                action: restart_pod
+                title: 重启 Pod
+                rationale: 删除指定 Pod 会导致其短暂不可用；是否恢复取决于控制器配置。
+                change_plan: '{"namespace": "langfuse", "pod": "langfuse-web-7448fdcc97-l4nzp", "reason": "按用户请求重启 Pod"}'
+                evidence: []
+                inputs:
+                  - key: impact_confirmed
+                    type: confirm
+                    label: 确认已了解重启影响
+                    required: true
+                    mustBeTrue: true
+                mcp_server: operator-agent-service
+                tool_name: restart_pod
+                execution:
+                  mode: approval_gate
+                  onApproved: execute_original_call
+                  onRejected: cancel_call
+              ns: null
+              resumable: null
+              when: null

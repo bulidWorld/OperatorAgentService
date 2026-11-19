@@ -5,18 +5,14 @@ export type ApprovalInput = {
   label: string;
   type: "confirm" | "single_select" | "multi_select" | "text";
   required: boolean;
+  description?: string;
   placeholder?: string;
+  mustBeTrue?: boolean;
   options?: ApprovalOption[];
-  max_length?: number;
+  maxLength?: number;
 };
 
-export type ApprovalEvidence = {
-  kind: string;
-  source: string;
-  summary: string;
-  url?: string;
-  timestamp?: string;
-};
+export type ApprovalEvidence = Record<string, unknown>;
 
 export type ApprovalRequest = {
   type: "approval_request";
@@ -28,12 +24,19 @@ export type ApprovalRequest = {
   change_plan: string;
   evidence: ApprovalEvidence[];
   inputs: ApprovalInput[];
+  mcp_server: string;
+  tool_name: string;
+  execution: {
+    mode: "approval_gate";
+    onApproved: "execute_original_call";
+    onRejected: "cancel_call";
+  };
 };
 
 export type ApprovalDecision = {
   request_id: string;
   status: "approved" | "rejected";
-  answers: Record<string, boolean | string | string[]>;
+  answers?: Record<string, boolean | string | string[]>;
   comment?: string;
 };
 
@@ -48,36 +51,31 @@ export function parseApprovalRequest(value: unknown): ApprovalRequest | null {
     typeof value.action !== "string" || !value.action.trim() ||
     typeof value.title !== "string" || !value.title.trim() ||
     typeof value.rationale !== "string" || typeof value.change_plan !== "string" ||
-    !Array.isArray(value.evidence) || !Array.isArray(value.inputs)
+    !Array.isArray(value.evidence) || !Array.isArray(value.inputs) ||
+    typeof value.mcp_server !== "string" || !value.mcp_server.trim() ||
+    typeof value.tool_name !== "string" || !value.tool_name.trim() ||
+    !isRecord(value.execution) || value.execution.mode !== "approval_gate" ||
+    value.execution.onApproved !== "execute_original_call" || value.execution.onRejected !== "cancel_call"
   ) return null;
 
   const evidence = value.evidence as unknown[];
-  if (!evidence.every((item) => {
-    if (!isRecord(item) || typeof item.kind !== "string" || !item.kind || typeof item.source !== "string" || !item.source || typeof item.summary !== "string") return false;
-    if (item.url !== undefined) {
-      if (typeof item.url !== "string") return false;
-      try {
-        if (!["http:", "https:"].includes(new URL(item.url).protocol)) return false;
-      } catch {
-        return false;
-      }
-    }
-    return item.timestamp === undefined || (typeof item.timestamp === "string" && !Number.isNaN(Date.parse(item.timestamp)));
-  })) return null;
+  if (!evidence.every(isRecord)) return null;
 
   const keys = new Set<string>();
   for (const item of value.inputs as unknown[]) {
     if (!isRecord(item) || typeof item.key !== "string" || !item.key.trim() || keys.has(item.key) || typeof item.label !== "string" || !item.label.trim() || typeof item.required !== "boolean") return null;
     keys.add(item.key);
     if (item.placeholder !== undefined && typeof item.placeholder !== "string") return null;
+    if (item.description !== undefined && typeof item.description !== "string") return null;
     if (item.type === "confirm") {
-      if (item.options !== undefined || item.max_length !== undefined) return null;
+      if (item.options !== undefined || item.maxLength !== undefined ||
+          (item.mustBeTrue !== undefined && (typeof item.mustBeTrue !== "boolean" || (item.mustBeTrue && item.required !== true)))) return null;
     } else if (item.type === "single_select" || item.type === "multi_select") {
-      if (!Array.isArray(item.options) || item.options.length === 0 || item.max_length !== undefined) return null;
+      if (!Array.isArray(item.options) || item.options.length === 0 || item.maxLength !== undefined || item.mustBeTrue !== undefined) return null;
       const values = new Set<string>();
       if (!item.options.every((option) => isRecord(option) && typeof option.value === "string" && option.value.length > 0 && typeof option.label === "string" && option.label.length > 0 && !values.has(option.value) && Boolean(values.add(option.value)))) return null;
     } else if (item.type === "text") {
-      if (item.options !== undefined || (item.max_length !== undefined && (!Number.isInteger(item.max_length) || Number(item.max_length) < 0))) return null;
+      if (item.options !== undefined || item.mustBeTrue !== undefined || (item.maxLength !== undefined && (!Number.isInteger(item.maxLength) || Number(item.maxLength) < 1 || Number(item.maxLength) > 10000))) return null;
     } else {
       return null;
     }
@@ -106,8 +104,22 @@ export function validateApprovalAnswers(
       if (!Array.isArray(answer) || !answer.every((value) => typeof value === "string" && input.options?.some((option) => option.value === value)) || new Set(answer).size !== answer.length || (input.required && answer.length === 0)) return `请为“${input.label}”选择有效选项。`;
     } else if (input.type === "text") {
       if (answer === undefined && !input.required) continue;
-      if (typeof answer !== "string" || (input.required && !answer.trim()) || (input.max_length !== undefined && answer.length > input.max_length)) return `请检查“${input.label}”的内容${input.max_length === undefined ? "" : `（最多 ${input.max_length} 个字符）`}。`;
+      if (typeof answer !== "string" || (input.required && !answer.trim()) || (input.maxLength !== undefined && answer.length > input.maxLength)) return `请检查“${input.label}”的内容${input.maxLength === undefined ? "" : `（最多 ${input.maxLength} 个字符）`}。`;
     }
+  }
+  return null;
+}
+
+export function validateApprovalDecision(
+  request: ApprovalRequest,
+  status: "approved" | "rejected",
+  answers: Record<string, unknown>,
+): string | null {
+  if (status === "rejected") return null;
+  const error = validateApprovalAnswers(request, answers);
+  if (error) return error;
+  for (const input of request.inputs) {
+    if (input.mustBeTrue && answers[input.key] !== true) return `必须确认“${input.label}”后才能批准。`;
   }
   return null;
 }

@@ -1,0 +1,35 @@
+type: RUN_FINISHED
+timestamp: 1795082752288
+threadId: 4c178053-5e90-479f-b507-eee0897b5186
+runId: b6e129f3-adab-4502-8c76-391537efb315
+outcome:
+  type: interrupt
+  interrupts:
+    - id: 7a160b0affab2191bbb2bb10f06e7649
+      reason: langgraph:interrupt
+      metadata:
+        langgraph:
+          raw:
+            type: approval_request
+            schema_version: 1
+            request_id: 2d00162f-8c49-57a3-a852-9c1fa7636cf4
+            action: restart_pod
+            title: 重启 Pod
+            rationale: 删除指定 Pod 会导致其短暂不可用；是否恢复取决于控制器配置。
+            change_plan: '{"namespace": "langfuse", "pod": "langfuse-web-7448fdcc97-l4nzp", "reason": "按用户请求重启 Pod"}'
+            evidence: []
+            inputs:
+              - key: impact_confirmed
+                type: confirm
+                label: 确认已了解重启影响
+                required: true
+                mustBeTrue: true
+            mcp_server: operator-agent-service
+            tool_name: restart_pod
+            execution:
+              mode: approval_gate
+              onApproved: execute_original_call
+              onRejected: cancel_call
+          ns: null
+          resumable: null
+          when: null

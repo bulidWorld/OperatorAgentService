@@ -23,21 +23,26 @@ properties:
         - $ref: '#/$defs/modelInference'
         - $ref: '#/$defs/reasoning'
         - $ref: '#/$defs/toolExecution'
-        - $ref: '#/$defs/approval'
 $defs:
   timestamp:
     type: string
     format: date-time
     description: ISO-8601 UTC 时间字符串。
   nullableTimestamp:
+    description: 可为空的 UTC 时间戳；事件或运行尚未结束时使用 null。
     oneOf:
       - $ref: '#/$defs/timestamp'
       - type: 'null'
   status:
     type: string
     enum: [queued, running, awaiting_approval, completed, failed, cancelled]
+    description: >-
+      运行或活动事件的生命周期状态。queued 表示等待执行，running 表示执行中，
+      awaiting_approval 表示等待人工审批，completed 表示成功完成，failed 表示执行失败，
+      cancelled 表示执行被取消。
   run:
     type: object
+    description: 一次 agent 执行及其所属 thread 的状态和时间信息。
     additionalProperties: true
     required: [runId, threadId, status, startedAt, updatedAt, finishedAt, error]
     properties:
@@ -64,6 +69,7 @@ $defs:
         description: 运行失败时的安全错误摘要。
   baseEvent:
     type: object
+    description: 所有活动事件共用的身份、顺序、生命周期和输入输出字段。
     additionalProperties: true
     required: [id, sequence, type, title, status, startedAt, updatedAt, finishedAt, input, output, error]
     properties:
@@ -77,6 +83,7 @@ $defs:
         description: 在本活动时间线中单调递增的展示顺序。
       type:
         type: string
+        description: 活动事件类型；具体事件定义会将其限制为明确的类型值。
       title:
         type: string
         minLength: 1
@@ -90,6 +97,7 @@ $defs:
       finishedAt:
         $ref: '#/$defs/nullableTimestamp'
       input:
+        type: [object, 'null']
         description: 脱敏后的输入摘要，不得包含隐藏推理或敏感参数。
       output:
         description: 规范化输出；具体结构由活动类型决定。
@@ -99,6 +107,7 @@ $defs:
           - type: 'null'
         description: 失败时的安全错误摘要。
   modelInference:
+    description: 一次模型推理活动，可关联 AG-UI 助手消息并保存面向用户的输出。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
@@ -106,8 +115,10 @@ $defs:
         properties:
           type:
             const: model_inference
+            description: 固定为 model_inference，表示模型推理活动。
           correlation:
             type: object
+            description: 将活动与模型生成的 AG-UI 消息关联起来。
             additionalProperties: false
             required: [messageId]
             properties:
@@ -116,8 +127,10 @@ $defs:
                 minLength: 1
                 description: 对应 TEXT_MESSAGE_* 事件的 message_id。
           output:
+            description: 模型面向用户的输出快照；隐藏推理内容不得写入此字段。
             oneOf:
               - type: object
+                description: 已生成的模型输出，可提供完整文本或有序多模态内容块。
                 additionalProperties: true
                 properties:
                   messageId:
@@ -129,10 +142,12 @@ $defs:
                     description: 可选完整文本；缺省时客户端按 messageId 拼接 TEXT_MESSAGE_CONTENT.delta。
                   content:
                     type: array
-                    description: 按顺序排列的多模态内容块。
-                    items: {}
+                    description: 按生成顺序排列的多模态内容块；每项结构遵循对应内容块协议。
+                    items:
+                      description: 单个文本、图片、音频或其他支持的内容块。
               - type: 'null'
   toolExecution:
+    description: 一次实际开始执行的工具调用及其结果。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
@@ -140,18 +155,23 @@ $defs:
         properties:
           type:
             const: tool_execution
+            description: 固定为 tool_execution，表示工具执行活动。
           tool:
             type: object
+            description: 被调用工具的标识信息。
             additionalProperties: true
             required: [name]
             properties:
               name:
                 type: string
                 minLength: 1
+                description: 工具名称。
               server:
                 type: string
+                description: 提供该工具的 MCP server 名称；无法确定时可省略。
           correlation:
             type: object
+            description: 将工具活动与 AG-UI 工具调用开始和结果事件关联起来。
             additionalProperties: false
             required: [toolCallId]
             properties:
@@ -160,6 +180,7 @@ $defs:
                 minLength: 1
                 description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
   reasoning:
+    description: 模型 reasoning 内容块的生命周期元数据；不得保存隐藏推理正文或加密载荷。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
@@ -167,8 +188,10 @@ $defs:
         properties:
           type:
             const: reasoning
+            description: 固定为 reasoning，表示模型推理元数据活动。
           correlation:
             type: object
+            description: 将此活动与模型流中的 reasoning 内容块关联起来。
             additionalProperties: false
             required: [reasoningId]
             properties:
@@ -177,34 +200,17 @@ $defs:
                 minLength: 1
                 description: 对应模型流 reasoning 内容块的 ID。
           output:
+            description: 非敏感的推理摘要元数据；不得包含隐藏推理正文或 encrypted_content。
             oneOf:
               - type: object
                 additionalProperties: false
+                description: 可选摘要对象。
                 properties:
                   summary:
                     type: array
-                    description: 推理摘要元数据；不得包含隐藏推理正文或加密推理载荷。
+                    description: 推理摘要元数据条目列表；不得包含隐藏推理正文或加密推理载荷。
                     items:
                       type: object
                       additionalProperties: true
+                      description: 一项非敏感摘要元数据。
               - type: 'null'
-  approval:
-    allOf:
-      - $ref: '#/$defs/baseEvent'
-      - type: object
-        additionalProperties: true
-        required: [type, approval]
-        properties:
-          type:
-            const: approval
-          approval:
-            type: object
-            additionalProperties: true
-            required: [requestId, status]
-            properties:
-              requestId:
-                oneOf:
-                  - type: string
-                  - type: 'null'
-              status:
-                const: awaiting_approval

@@ -92,8 +92,8 @@ $defs:
     title: 审批安全策略
     description: >-
       仅声明工具风险等级、审批触发模式和条件判断失败时的兜底操作。
-      V1 不包含 approvalRole；身份认证由 Agent Server 的接口鉴权层实现，
-      审批提交与恢复接口必须验证调用者身份，不在此 Schema 声明角色权限。
+      身份认证由部署层决定；MTAP 审批恢复逻辑不要求 reviewer 身份，
+      本 Schema 不声明角色权限或审核人身份字段。
     type: object
     required: [riskLevel, approvalMode]
     properties:

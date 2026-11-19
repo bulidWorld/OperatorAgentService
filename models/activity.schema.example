@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "runId": "run_01JABCDEF1234567890",
+    "threadId": "thread_01JXYZ9876543210",
+    "status": "completed",
+    "startedAt": "2026-11-19T02:15:00Z",
+    "updatedAt": "2026-11-19T02:15:08Z",
+    "finishedAt": "2026-11-19T02:15:08Z",
+    "error": null
+  },
+  "events": [
+    {
+      "id": "activity_001",
+      "sequence": 1,
+      "type": "model_inference",
+      "title": "分析用户请求",
+      "status": "completed",
+      "startedAt": "2026-11-19T02:15:00Z",
+      "updatedAt": "2026-11-19T02:15:02Z",
+      "finishedAt": "2026-11-19T02:15:02Z",
+      "input": {
+        "summary": "查询示例服务的健康状态"
+      },
+      "output": {
+        "messageId": "message_001",
+        "text": "我来检查示例服务的健康状态。"
+      },
+      "error": null,
+      "correlation": {
+        "messageId": "message_001"
+      }
+    },
+    {
+      "id": "activity_002",
+      "sequence": 2,
+      "type": "tool_execution",
+      "title": "查询服务状态",
+      "status": "completed",
+      "startedAt": "2026-11-19T02:15:02Z",
+      "updatedAt": "2026-11-19T02:15:05Z",
+      "finishedAt": "2026-11-19T02:15:05Z",
+      "input": {
+        "service": "example-service",
+        "namespace": "default"
+      },
+      "output": {
+        "healthy": true,
+        "replicas": {
+          "ready": 2,
+          "desired": 2
+        }
+      },
+      "error": null,
+      "tool": {
+        "name": "get_service_health",
+        "server": "operator-agent-service"
+      },
+      "correlation": {
+        "toolCallId": "tool_call_001"
+      }
+    },
+    {
+      "id": "activity_003",
+      "sequence": 3,
+      "type": "model_inference",
+      "title": "总结查询结果",
+      "status": "completed",
+      "startedAt": "2026-11-19T02:15:05Z",
+      "updatedAt": "2026-11-19T02:15:08Z",
+      "finishedAt": "2026-11-19T02:15:08Z",
+      "input": {
+        "summary": "根据工具返回结果回答用户"
+      },
+      "output": {
+        "messageId": "message_002",
+        "text": "示例服务运行正常，2 个期望副本均已就绪。"
+      },
+      "error": null,
+      "correlation": {
+        "messageId": "message_002"
+      }
+    }
+  ]
+}

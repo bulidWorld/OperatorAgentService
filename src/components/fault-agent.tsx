@@ -10,7 +10,7 @@ import type {
   ApprovalInput,
   ApprovalRequest,
 } from "@/lib/approval";
-import { parseApprovalRequest, validateApprovalAnswers } from "@/lib/approval";
+import { parseApprovalRequest, validateApprovalDecision } from "@/lib/approval";
 import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, type AgentRunEvent, type AgentRunActivity, type ActivitySyncState } from "@/lib/activity";
 import { useRef } from "react";
 import { appendMessageText, storeToolResult } from "@/lib/activity-details";
@@ -223,7 +223,8 @@ function ApprovalField({
       <fieldset className="approval-field">
         <legend>{input.label}{input.required ? " *" : ""}</legend>
         <label><input type="radio" name={`approval-${input.key}`} checked={value === true} onChange={() => onChange(true)} /> 是</label>
-        <label><input type="radio" name={`approval-${input.key}`} checked={value === false} onChange={() => onChange(false)} /> 否</label>
+        {!input.mustBeTrue && <label><input type="radio" name={`approval-${input.key}`} checked={value === false} onChange={() => onChange(false)} /> 否</label>}
+        {input.description && <small>{input.description}</small>}
       </fieldset>
     );
   }
@@ -235,25 +236,29 @@ function ApprovalField({
           <option value="" disabled={input.required}>{input.placeholder ?? "请选择"}</option>
           {input.options?.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
         </select>
+        {input.description && <small>{input.description}</small>}
       </label>
     );
   }
   if (input.type === "multi_select") {
     const selected = Array.isArray(value) ? value : [];
     return (
-      <fieldset className="approval-field">
-        <legend>{input.label}{input.required ? " *" : ""}</legend>
-        {input.options?.map((option) => (
-          <label key={option.value}>
-            <input
-              type="checkbox"
-              checked={selected.includes(option.value)}
-              onChange={(event) => onChange(event.target.checked ? [...selected, option.value] : selected.filter((item) => item !== option.value))}
-            />
-            {option.label}
-          </label>
-        ))}
-      </fieldset>
+      <div className="approval-field">
+        <fieldset>
+          <legend>{input.label}{input.required ? " *" : ""}</legend>
+          {input.options?.map((option) => (
+            <label key={option.value}>
+              <input
+                type="checkbox"
+                checked={selected.includes(option.value)}
+                onChange={(event) => onChange(event.target.checked ? [...selected, option.value] : selected.filter((item) => item !== option.value))}
+              />
+              {option.label}
+            </label>
+          ))}
+        </fieldset>
+        {input.description && <small>{input.description}</small>}
+      </div>
     );
   }
   return (
@@ -262,11 +267,12 @@ function ApprovalField({
       <textarea
         value={typeof value === "string" ? value : ""}
         placeholder={input.placeholder}
-        maxLength={input.max_length}
+        maxLength={input.maxLength}
         required={input.required}
         onChange={(event) => onChange(event.target.value)}
       />
-      {input.max_length !== undefined && <small>{typeof value === "string" ? value.length : 0}/{input.max_length}</small>}
+      {input.description && <small>{input.description}</small>}
+      {input.maxLength !== undefined && <small>{typeof value === "string" ? value.length : 0}/{input.maxLength}</small>}
     </label>
   );
 }
@@ -299,7 +305,7 @@ function ApprovalCard({
   }
 
   const decide = (status: "approved" | "rejected") => {
-    const validationError = validateApprovalAnswers(request, answers);
+    const validationError = validateApprovalDecision(request, status, answers);
     if (validationError) {
       setError(validationError);
       return;
@@ -308,7 +314,7 @@ function ApprovalCard({
     void resolve({
       request_id: request.request_id,
       status,
-      answers,
+      ...(status === "approved" ? { answers } : {}),
       ...(comment.trim() ? { comment: comment.trim() } : {}),
     }, interruptId);
   };
@@ -324,7 +330,7 @@ function ApprovalCard({
         <div className="approval-evidence">
           <b>证据</b>
           {request.evidence.map((item, index) => (
-            <p key={`${item.kind}-${index}`}><b>{item.kind} · {item.source}：</b>{item.summary}{item.timestamp && <>（{item.timestamp}）</>}{item.url && <> <a href={item.url} target="_blank" rel="noreferrer">查看</a></>}</p>
+            <pre key={index}>{JSON.stringify(item, null, 2)}</pre>
           ))}
         </div>
       )}
