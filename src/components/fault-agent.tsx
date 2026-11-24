@@ -221,6 +221,7 @@ function ApprovalField({
   onChange: (value: boolean | string | string[]) => void;
 }) {
   if (input.type === "confirm") {
+    if (input.mustBeTrue) return null;
     return (
       <fieldset className="approval-field">
         <legend>{input.label}{input.required ? " *" : ""}</legend>
@@ -293,7 +294,6 @@ function ApprovalCard({
   cancel: (id?: string) => unknown;
 }) {
   const [answers, setAnswers] = useState<Record<string, boolean | string | string[]>>({});
-  const [comment, setComment] = useState("");
   const [error, setError] = useState("");
 
   if (!request) {
@@ -309,7 +309,10 @@ function ApprovalCard({
   }
 
   const decide = (status: "approved" | "rejected") => {
-    const validationError = validateApprovalDecision(request, status, answers);
+    const submittedAnswers = status === "approved"
+      ? { ...answers, ...Object.fromEntries(request.inputs.filter((input) => input.type === "confirm" && input.mustBeTrue).map((input) => [input.key, true])) }
+      : answers;
+    const validationError = validateApprovalDecision(request, status, submittedAnswers);
     if (validationError) {
       setError(validationError);
       return;
@@ -318,8 +321,7 @@ function ApprovalCard({
     void resolve({
       request_id: request.request_id,
       status,
-      ...(status === "approved" ? { answers } : {}),
-      ...(comment.trim() ? { comment: comment.trim() } : {}),
+      ...(status === "approved" ? { answers: submittedAnswers } : {}),
     }, interruptId);
   };
 
@@ -355,10 +357,6 @@ function ApprovalCard({
             />
           ))}
         </div>
-        <label className="approval-field">
-          <span>总体审核意见（可选）</span>
-          <textarea value={comment} placeholder="填写总体意见" onChange={(event) => setComment(event.target.value)} />
-        </label>
         {error && <p role="alert" className="approval-error">{error}</p>}
       </div>
       <div className="approval-actions">

@@ -1384,3 +1384,36 @@ footer > span:first-child {
 .approval-modal .approval-body { max-height: calc(88dvh - 150px); overflow-y: auto; }
 .approval-modal-close { position: absolute; top: 10px; right: 12px; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: #718196; font-size: 23px; cursor: pointer; }
 .approval-modal-close:hover { background: #f1f4f6; }
+
+/* Approval dialog refresh */
+.approval-modal-backdrop { padding: 24px; background: rgba(18, 32, 48, .58); backdrop-filter: blur(4px); }
+.approval-modal { width: min(620px, 100%); max-height: min(84dvh, 740px); overflow: hidden; border: 1px solid rgba(255,255,255,.75); border-radius: 20px; box-shadow: 0 30px 90px rgba(14, 29, 44, .32); }
+.approval-modal .pod-restart-approval { display: flex; max-height: min(84dvh, 740px); flex-direction: column; border: 0; border-radius: 20px; background: #fff; }
+.approval-modal .approval-heading { min-height: 82px; padding: 18px 58px 18px 24px; border-bottom: 1px solid #edf1f4; background: linear-gradient(120deg, #f2faf7 0%, #fbfdfc 72%); }
+.approval-modal .approval-icon { width: 40px; height: 40px; border-color: #d4ebe2; border-radius: 13px; background: #eaf7f1; color: #20866d; }
+.approval-modal .approval-kicker { color: #568b7b; font-size: 11px; font-weight: 600; }
+.approval-modal .approval-heading strong { margin-top: 2px; color: #20384a; font-size: 18px; letter-spacing: -.25px; }
+.approval-modal .approval-badge { border-color: #f0dfba; background: #fff9ec; color: #a37420; }
+.approval-modal .approval-modal-close { z-index: 1; top: 17px; right: 18px; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #e8edf0; background: #fff; font-size: 21px; }
+.approval-modal .approval-body { gap: 18px; max-height: none; overflow: auto; padding: 23px 24px; }
+.approval-modal .approval-message { padding: 11px 13px; border: 1px solid #e3edf3; border-radius: 10px; background: #f7fafc; color: #597084; }
+.approval-modal .approval-summary { gap: 0; overflow: hidden; border: 1px solid #e8edf1; border-radius: 12px; background: #fff; }
+.approval-modal .approval-summary > div { grid-template-columns: 88px minmax(0, 1fr); gap: 12px; padding: 12px 14px; }
+.approval-modal .approval-summary > div + div { border-top: 1px solid #eef2f5; }
+.approval-modal .approval-summary dt { color: #8a98a6; font-size: 12px; }
+.approval-modal .approval-summary dd { color: #344a5d; font-size: 13px; line-height: 1.65; }
+.approval-modal .approval-fields { gap: 12px; }
+.approval-modal .approval-field > span, .approval-modal .approval-field legend { color: #4c6073; }
+.approval-modal .approval-actions { gap: 9px; padding: 15px 24px; border-top: 1px solid #edf1f4; background: #fbfcfd; }
+.approval-modal .approval-actions .button { min-height: 40px; padding: 9px 17px; border-radius: 9px; font-size: 13px; font-weight: 600; }
+.approval-modal .approval-actions .button.secondary { border-color: #dfe6eb; background: #fff; color: #53687a; }
+.approval-modal .approval-actions .button.danger { border-color: #17836e; background: #17836e; color: #fff; box-shadow: 0 3px 8px rgba(23,131,110,.16); }
+.approval-modal .approval-actions .button.danger:hover { border-color: #116f5d; background: #116f5d; }
+@media (max-width: 640px) {
+  .approval-modal-backdrop { padding: 12px; }
+  .approval-modal, .approval-modal .pod-restart-approval { max-height: 90dvh; border-radius: 16px; }
+  .approval-modal .approval-heading { padding: 15px 52px 15px 16px; }
+  .approval-modal .approval-body { padding: 16px; }
+  .approval-modal .approval-summary > div { grid-template-columns: 1fr; gap: 3px; padding: 10px 12px; }
+  .approval-modal .approval-actions { padding: 12px 16px; }
+}
