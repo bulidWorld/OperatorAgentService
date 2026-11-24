@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getStoredAlertDetails, getStoredAlerts } from "../kubernetes-events";
 import { getPodLogs } from "../kubernetes-logs";
-import { getPods } from "../kubernetes-pods";
+import { getPodDetails, getPods } from "../kubernetes-pods";
 import {
   query as queryPrometheus,
   queryRange as queryPrometheusRange,
@@ -33,6 +33,7 @@ const TOOL_SCOPES: Record<string, string> = {
   query_alert_details: "mcp:read",
   query_pod_logs: "mcp:read",
   query_pods: "mcp:read",
+  query_pod_details: "mcp:read",
   restart_pod: "mcp:restart",
 };
 
@@ -228,6 +229,8 @@ async function execute(
       return getPodLogs(args as Parameters<typeof getPodLogs>[0]);
     case "query_pods":
       return getPods(args as Parameters<typeof getPods>[0]);
+    case "query_pod_details":
+      return getPodDetails(args as Parameters<typeof getPodDetails>[0]);
     case "restart_pod": {
       const namespace = String(args.namespace);
       const pod = String(args.pod);
@@ -497,6 +500,12 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
                 },
               ],
               structuredContent: podLogs,
+              isError: false,
+            };
+          }
+          if (tool.name === "query_pod_details") {
+            return {
+              content: [{ type: "text", text: serialized }],
               isError: false,
             };
           }
