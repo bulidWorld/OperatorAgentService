@@ -1375,3 +1375,12 @@ footer > span:first-child {
   .activity-event, .activity-status-icon.is-spinning, .activity-run-status.status-running i { animation: none; }
   .activity-event-card { transition: none; }
 }
+
+.activity-event-card.is-approval-action { cursor: pointer; border-color: #f0dfbd; background: #fffdf8; }
+.activity-event-card.is-approval-action:hover, .activity-event-card.is-approval-action:focus-visible { border-color: #d8b768; box-shadow: 0 0 0 3px rgba(179, 123, 25, .1); outline: none; }
+.approval-modal-backdrop { position: fixed; z-index: 1100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 30, 43, .52); }
+.approval-modal { position: relative; width: min(680px, 100%); max-height: min(88dvh, 820px); overflow: auto; border-radius: 14px; background: #fff; box-shadow: 0 24px 70px rgba(12, 27, 42, .3); }
+.approval-modal .pod-restart-approval { max-height: none; border: 0; }
+.approval-modal .approval-body { max-height: calc(88dvh - 150px); overflow-y: auto; }
+.approval-modal-close { position: absolute; top: 10px; right: 12px; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: #718196; font-size: 23px; cursor: pointer; }
+.approval-modal-close:hover { background: #f1f4f6; }

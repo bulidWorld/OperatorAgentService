@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ComponentProps, type ReactNode } from "react";
-import { CopilotChat, CopilotChatView, CopilotChatInput, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
+import { createContext, useContext, useEffect, useState, type ComponentProps } from "react";
+import { CopilotChat, CopilotChatView, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import { Markdown } from "@copilotkit/react-ui";
 import { buildFaultAgentTurns } from "@/lib/fault-agent-turns";
 import type { ActivityMessage, Interrupt } from "@ag-ui/client";
@@ -154,6 +154,7 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
 }
 
 function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string> }) {
+  const openApproval = useContext(ApprovalContext);
   const [detail, setDetail] = useState<{ title: string; content: unknown } | null>(null);
   if (!activity) {
     return <div className="activity-empty-state compact"><span><Clock3 size={17} /></span><p>执行时间线暂不可用。</p></div>;
@@ -175,11 +176,12 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
           {sortedEvents.map((item, index) => (
             <li key={item.id} className={`activity-event status-${item.status}`}>
               <div className="activity-event-rail"><span className="activity-event-marker"><StatusIcon status={item.status} type={item.type} /></span>{index < sortedEvents.length - 1 && <i />}</div>
-              <article className="activity-event-card">
+              <article className={`activity-event-card${item.status === "awaiting_approval" && item.type === "tool_execution" ? " is-approval-action" : ""}`} onClick={item.status === "awaiting_approval" && item.type === "tool_execution" ? () => openApproval(item) : undefined} onKeyDown={item.status === "awaiting_approval" && item.type === "tool_execution" ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openApproval(item); } } : undefined} role={item.status === "awaiting_approval" && item.type === "tool_execution" ? "button" : undefined} tabIndex={item.status === "awaiting_approval" && item.type === "tool_execution" ? 0 : undefined}>
                 <div className="activity-event-topline"><span className="activity-event-type">{eventTypeLabels[item.type] ?? "执行步骤"}</span><time>{formatActivityTime(item.startedAt)}</time></div>
                 <div className="activity-event-title-row"><h4>{item.title}</h4><span className={`activity-event-status status-${item.status}`}>{statusLabels[item.status] ?? item.status}</span></div>
                 {item.tool && <p className="activity-tool-label"><Wrench size={12} />{item.tool.name}{item.tool.server ? <span>· {item.tool.server}</span> : null}</p>}
                 {item.type === "approval" && item.approval && <p className="activity-approval-ref"><ShieldCheck size={12} />{item.approval.requestId ? <>审批单 <code>{item.approval.requestId}</code></> : "需要人工审批"}</p>}
+                {item.status === "awaiting_approval" && item.type === "tool_execution" && <p className="activity-approval-ref"><ShieldCheck size={12} />需要审批 · 点击查看并处理</p>}
                 <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[String((item.correlation as { toolCallId?: string } | undefined)?.toolCallId ?? "")] : item.type === "model_inference" ? (item.output?.text ?? messageText[String((item.correlation as { messageId?: string } | undefined)?.messageId ?? "")]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
               </article>
             </li>
@@ -368,61 +370,37 @@ function ApprovalCard({
   );
 }
 
-// CopilotKit treats function slots as component types. Keep them at module scope
-// so streamed activity updates preserve the chat DOM, scroll position and form state.
-const ApprovalContext = createContext<ReactNode>(null);
+const ApprovalContext = createContext<(event: AgentRunEvent) => void>(() => {});
 
-function FaultAgentInput(props: ComponentProps<typeof CopilotChatInput>) {
-  const approval = useContext(ApprovalContext);
-  return (
-    <div className="fault-agent-composer">
-      {approval}
-      {approval && <p className="fault-agent-approval-notice" role="status"><ShieldCheck size={16} />请先处理审批项，再继续对话。</p>}
-      <CopilotChatInput
-        {...props}
-        onSubmitMessage={approval ? undefined : props.onSubmitMessage}
-        textArea={approval ? { disabled: true, placeholder: "请先处理审批项后再发送新消息", "aria-label": "请先处理审批项" } : undefined}
-      />
-    </div>
-  );
+function FaultAgentChatView(props: ComponentProps<typeof CopilotChatView>) { return <CopilotChatView {...props} />; }
+
+function ApprovalLayer({ interrupts, resolve, cancel }: { interrupts: Interrupt[]; resolve: (value: unknown, id?: string) => unknown; cancel: (id?: string) => unknown }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = interrupts.find((item) => item.id === selectedId);
+  useEffect(() => { if (selectedId && !interrupts.some((item) => item.id === selectedId)) setSelectedId(null); }, [interrupts, selectedId]);
+  // The click callback is attached through a small registry keyed by the activity request id.
+  useEffect(() => { approvalOpener.current = (event) => {
+    const correlation = event.correlation as { approvalRequestId?: string; requestId?: string } | undefined;
+    const requestId = event.type === "approval" ? event.approval?.requestId : correlation?.approvalRequestId ?? correlation?.requestId;
+    const match = interrupts.find((item) => { const request = readRequest(item); return request && (!requestId || request.request_id === requestId); });
+    if (match) setSelectedId(match.id);
+  }; return () => { approvalOpener.current = null; }; }, [interrupts]);
+  return selected ? <div className="approval-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}><section className="approval-modal" role="dialog" aria-modal="true"><ApprovalCard request={readRequest(selected)} interruptId={selected.id} message={selected.message} resolve={(value, id) => { const result = resolve(value, id); setSelectedId(null); return result; }} cancel={(id) => { const result = cancel(id); setSelectedId(null); return result; }} /><button className="approval-modal-close" type="button" aria-label="关闭审批框" onClick={() => setSelectedId(null)}>×</button></section></div> : null;
 }
 
-function FaultAgentChatView(props: ComponentProps<typeof CopilotChatView>) {
-  const approval = useContext(ApprovalContext);
-  return <CopilotChatView
-    {...props}
-    onSubmitMessage={approval ? undefined : props.onSubmitMessage}
-    onSelectSuggestion={approval ? undefined : props.onSelectSuggestion}
-    input={FaultAgentInput}
-  />;
-}
+const approvalOpener: { current: ((event: AgentRunEvent) => void) | null } = { current: null };
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
   const { activities, runUsers, results, runErrors, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
+  const openApproval = (event: AgentRunEvent) => approvalOpener.current?.(event);
   const approval = useInterrupt({
     renderInChat: false,
     enabled: ({ name }) => name === "on_interrupt",
     render: ({ interrupt, interrupts, resolve, cancel }) => {
       const pending = interrupts.length ? interrupts : interrupt ? [interrupt] : [];
-      return (
-        <div className="pod-restart-approvals" aria-live="polite">
-          {pending.map((item) => {
-            const request = readRequest(item);
-            return (
-              <ApprovalCard
-                key={item.id}
-                request={request}
-                interruptId={item.id}
-                message={item.message}
-                resolve={resolve}
-                cancel={cancel}
-              />
-            );
-          })}
-        </div>
-      );
+      return <ApprovalLayer interrupts={pending} resolve={resolve} cancel={cancel} />;
     },
   });
 
@@ -435,7 +413,8 @@ export default function FaultAgent() {
         </div>
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
-      <ApprovalContext.Provider value={approval}>
+      <ApprovalContext.Provider value={openApproval}>
+        {approval}
         <CopilotChat
           chatView={FaultAgentChatView}
           labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
