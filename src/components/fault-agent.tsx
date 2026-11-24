@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CopilotChat, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
+import { CopilotChat, CopilotChatView, CopilotChatInput, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import { Markdown } from "@copilotkit/react-ui";
 import { buildFaultAgentTurns } from "@/lib/fault-agent-turns";
 import type { ActivityMessage, Interrupt } from "@ag-ui/client";
@@ -350,6 +350,7 @@ function ApprovalCard({
       </label>
       {error && <p role="alert" className="approval-error">{error}</p>}
       <div>
+        <button type="button" className="button secondary" onClick={() => void cancel(interruptId)}>取消</button>
         <button type="button" className="button secondary" onClick={() => decide("rejected")}>拒绝</button>
         <button type="button" className="button danger" onClick={() => decide("approved")}>批准并继续</button>
       </div>
@@ -396,6 +397,24 @@ export default function FaultAgent() {
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
       <CopilotChat
+        chatView={(props) => (
+          <CopilotChatView
+            {...props}
+            onSubmitMessage={approval ? undefined : props.onSubmitMessage}
+            onSelectSuggestion={approval ? undefined : props.onSelectSuggestion}
+            input={(inputProps) => (
+              <div className="fault-agent-composer">
+                {approval}
+                {approval && <p className="fault-agent-approval-notice" role="status"><ShieldCheck size={16} />请先处理上方所有审批项（批准、拒绝或取消），处理完成后才能发送新消息。</p>}
+                <CopilotChatInput
+                  {...inputProps}
+                  onSubmitMessage={approval ? undefined : inputProps.onSubmitMessage}
+                  textArea={approval ? { disabled: true, placeholder: "请先处理上方审批项后再发送新消息", "aria-label": "请先处理审批项" } : undefined}
+                />
+              </div>
+            )}
+          />
+        )}
         labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
         messageView={{ children: ({ messages }) => {
           const turns = buildFaultAgentTurns(messages, activities, runUsers, results, runErrors);
@@ -412,7 +431,6 @@ export default function FaultAgent() {
           </div>;
         } }}
       />
-      {approval}
     </section>
   );
 }

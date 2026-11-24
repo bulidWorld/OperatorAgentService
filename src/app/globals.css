@@ -1218,7 +1218,7 @@ footer > span:first-child {
 .fault-agent .copilotKitMessages { justify-content: flex-start; }
 .fault-agent .copilotKitMessagesContainer { gap: 6px; }
 /* One chronological conversation, with a separate execution timeline per run. */
-.fault-agent-conversation { width: min(100%, 960px); margin: 0 auto; padding: 20px 24px 28px; }
+.fault-agent-conversation { width: min(100%, 1024px); margin: 0 auto; padding: 20px 24px 28px; }
 .fault-agent-turn { display: grid; gap: 22px; padding-bottom: 30px; }
 .fault-agent-turn + .fault-agent-turn { padding-top: 26px; border-top: 1px solid #e8eef2; }
 .fault-agent-question { justify-self: end; max-width: 85%; padding: 13px 18px; border: 1px solid #dce9f2; border-radius: 16px 16px 4px 16px; background: #f0f6fb; }
@@ -1256,6 +1256,10 @@ footer > span:first-child {
   .fault-agent-reply .activity-run-meta code { overflow-wrap: anywhere; }
 }
 .pod-restart-approval { margin: 12px 20px 20px; padding: 16px; border: 1px solid #e4b850; border-radius: 10px; background: #fffaf0; color: #29364a; }
+.fault-agent-composer { min-width: 0; }
+.fault-agent-composer .pod-restart-approvals { max-height: min(50vh, 480px); overflow-y: auto; overscroll-behavior: contain; }
+.fault-agent-approval-notice { display: flex; align-items: center; gap: 8px; margin: 8px 20px; color: #925f0c; font-size: 13px; line-height: 1.6; }
+.fault-agent-approval-notice svg { flex-shrink: 0; }
 .pod-restart-approvals { display: grid; gap: 10px; }
 .pod-restart-approval strong { display: block; margin-bottom: 8px; }
 .pod-restart-approval p { margin: 6px 0; font-size: 13px; line-height: 1.5; }

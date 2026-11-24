@@ -13,13 +13,28 @@ let handler: ReturnType<typeof createCopilotHonoHandler> | undefined;
 class LoggedAgentFetch {
   fetch(url: string, requestInit: RequestInit): Promise<Response> {
     const target = new URL(url);
+    // AG-UI's client materializes its local state on every run. The MTAP
+    // agent does not use that state for approval recovery; keep the wire
+    // request focused on messages and resume entries.
+    let outgoingInit = requestInit;
+    if (typeof requestInit.body === "string") {
+      try {
+        const body = JSON.parse(requestInit.body) as Record<string, unknown>;
+        if (body && typeof body === "object" && !Array.isArray(body) && "state" in body) {
+          const { state: _state, ...input } = body;
+          outgoingInit = { ...requestInit, body: JSON.stringify(input) };
+        }
+      } catch {
+        // Preserve non-JSON requests for the downstream agent to handle.
+      }
+    }
     return withHttpLog(
       {
         method: requestInit.method ?? "POST",
         path: target.pathname,
         operation: "远端 AG-UI Agent 请求",
       },
-      () => globalThis.fetch(url, requestInit),
+      () => globalThis.fetch(url, outgoingInit),
     );
   }
 }
