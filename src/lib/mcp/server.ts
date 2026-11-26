@@ -132,6 +132,7 @@ function codedError(error: unknown) {
     "RESULT_TOO_LARGE",
     "UPSTREAM_ERROR",
     "POD_CHANGED",
+    "POD_NOT_FOUND",
   ];
   const ownCode =
     error &&
@@ -517,6 +518,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
                   },
                 },
               ],
+              structuredContent: result as Record<string, unknown>,
               isError: false,
             };
           }
