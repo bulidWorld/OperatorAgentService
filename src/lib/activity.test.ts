@@ -94,6 +94,35 @@ test("the real snapshot and activity deltas stay synchronized without the unavai
   assert.equal(activity.content.events[0].status, "failed");
 });
 
+test("non-replacing snapshots preserve the activity and its out-of-sync state", () => {
+  const content = structuredClone(snapshot.content);
+  content.events.push({
+    id: "step-1",
+    sequence: 1,
+    type: "system_step",
+    title: "检查服务状态",
+    status: "completed",
+    startedAt: "2026-11-19T01:18:30.671Z",
+    updatedAt: "2026-11-19T01:18:31.000Z",
+    finishedAt: "2026-11-19T01:18:31.000Z",
+    error: null,
+  });
+  let state = reduceActivitySnapshot(null, { ...snapshot, content });
+  const activity = state.activity;
+  assert.ok(activity);
+
+  state = reduceActivityDelta(activity, { ...deltas[0], patch: [{ op: "replace", path: "/missing", value: true }] }, state.sync);
+  assert.equal(state.sync, "needs_snapshot");
+  assert.equal(parseAgentRunActivity(state.activity?.content)?.events[0].title, "检查服务状态");
+
+  state = reduceActivitySnapshot(state.activity, { ...snapshot, replace: false, content: {} }, state.sync);
+  assert.equal(state.sync, "needs_snapshot");
+  assert.equal(parseAgentRunActivity(state.activity?.content)?.events[0].title, "检查服务状态");
+
+  state = reduceActivitySnapshot(state.activity, snapshot, state.sync);
+  assert.equal(state.sync, "ready");
+});
+
 test("accepts reasoning events and keeps only their summary available for display", () => {
   const content = structuredClone(snapshot.content);
   content.events.push({

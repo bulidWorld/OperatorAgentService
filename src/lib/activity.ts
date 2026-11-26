@@ -177,9 +177,12 @@ export function applyActivityPatch(content: Record<string, unknown>, patch: unkn
 export function reduceActivitySnapshot(
   current: ActivityMessage | null,
   event: ActivitySnapshotEvent,
+  sync: ActivitySyncState = "ready",
 ): { activity: ActivityMessage | null; sync: ActivitySyncState } {
-  if (event.activityType !== "agent_run") return { activity: current, sync: "ready" };
-  if (event.replace === false) return { activity: current, sync: "ready" };
+  if (event.activityType !== "agent_run") return { activity: current, sync };
+  // A non-replacing snapshot is informational only; it must not change either
+  // the content or synchronization state of the current activity.
+  if (event.replace === false) return { activity: current, sync };
   const activity: ActivityMessage = {
     id: event.messageId,
     role: "activity",

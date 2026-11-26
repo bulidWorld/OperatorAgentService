@@ -84,7 +84,8 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
       },
       onActivitySnapshotEvent: ({ event }) => {
         if (event.activityType !== "agent_run") return;
-        const result = reduceActivitySnapshot(snapshots.get(event.messageId)?.activity ?? null, event);
+        const previous = snapshots.get(event.messageId);
+        const result = reduceActivitySnapshot(previous?.activity ?? null, event, previous?.sync ?? "ready");
         snapshots.set(event.messageId, result);
         save(result.activity, result.sync);
       },
