@@ -11,7 +11,7 @@ required:
 properties:
   schemaVersion:
     type: integer
-    const: 1
+    const: 2
     description: content 模型版本；不兼容变更时递增。
   run:
     $ref: '#/$defs/run'
@@ -20,8 +20,8 @@ properties:
     description: 按 sequence 升序排列的平铺活动条目。
     items:
       oneOf:
-        - $ref: '#/$defs/modelInference'
         - $ref: '#/$defs/reasoning'
+        - $ref: '#/$defs/modelSummary'
         - $ref: '#/$defs/toolExecution'
 $defs:
   timestamp:
@@ -106,46 +106,6 @@ $defs:
           - type: string
           - type: 'null'
         description: 失败时的安全错误摘要。
-  modelInference:
-    description: 一次模型推理活动，可关联 AG-UI 助手消息并保存面向用户的输出。
-    allOf:
-      - $ref: '#/$defs/baseEvent'
-      - type: object
-        required: [type, correlation]
-        properties:
-          type:
-            const: model_inference
-            description: 固定为 model_inference，表示模型推理活动。
-          correlation:
-            type: object
-            description: 将活动与模型生成的 AG-UI 消息关联起来。
-            additionalProperties: false
-            required: [messageId]
-            properties:
-              messageId:
-                type: string
-                minLength: 1
-                description: 对应 TEXT_MESSAGE_* 事件的 message_id。
-          output:
-            description: 模型面向用户的输出快照；隐藏推理内容不得写入此字段。
-            oneOf:
-              - type: object
-                description: 已生成的模型输出，可提供完整文本或有序多模态内容块。
-                additionalProperties: true
-                properties:
-                  messageId:
-                    type: string
-                    minLength: 1
-                    description: 应与 correlation.messageId 一致。
-                  text:
-                    type: string
-                    description: 可选完整文本；缺省时客户端按 messageId 拼接 TEXT_MESSAGE_CONTENT.delta。
-                  content:
-                    type: array
-                    description: 按生成顺序排列的多模态内容块；每项结构遵循对应内容块协议。
-                    items:
-                      description: 单个文本、图片、音频或其他支持的内容块。
-              - type: 'null'
   toolExecution:
     description: 一次实际开始执行的工具调用及其结果。
     allOf:
@@ -180,37 +140,49 @@ $defs:
                 minLength: 1
                 description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
   reasoning:
-    description: 模型 reasoning 内容块的生命周期元数据；不得保存隐藏推理正文或加密载荷。
+    description: route_turn、assistant 或 assess_pod 步骤的 Thinking 活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
-        required: [type]
         properties:
           type:
             const: reasoning
-            description: 固定为 reasoning，表示模型推理元数据活动。
-          correlation:
-            type: object
-            description: 将此活动与模型流中的 reasoning 内容块关联起来。
-            additionalProperties: false
-            required: [reasoningId]
-            properties:
-              reasoningId:
-                type: string
-                minLength: 1
-                description: 对应模型流 reasoning 内容块的 ID。
+          title:
+            const: Thinking
           output:
-            description: 非敏感的推理摘要元数据；不得包含隐藏推理正文或 encrypted_content。
-            oneOf:
-              - type: object
-                additionalProperties: false
-                description: 可选摘要对象。
-                properties:
-                  summary:
-                    type: array
-                    description: 推理摘要元数据条目列表；不得包含隐藏推理正文或加密推理载荷。
-                    items:
-                      type: object
-                      additionalProperties: true
-                      description: 一项非敏感摘要元数据。
-              - type: 'null'
+            $ref: '#/$defs/stepOutput'
+  modelSummary:
+    description: finalize 步骤的模型总结活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        properties:
+          type:
+            const: model_summary
+          title:
+            const: 模型总结
+          output:
+            $ref: '#/$defs/stepOutput'
+  stepOutput:
+    description: 步骤中的助手文本和 AG-UI 公开推理摘要；执行期间或无消息时可为 null。
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required: [messages]
+        properties:
+          messages:
+            type: array
+            description: 按首次收到内容的顺序排列的消息；每条消息的文本由其 delta 拼接。
+            items:
+              type: object
+              additionalProperties: false
+              required: [messageId, type, text]
+              properties:
+                messageId:
+                  type: string
+                  minLength: 1
+                type:
+                  enum: [text, reasoning]
+                text:
+                  type: string
+      - type: 'null'

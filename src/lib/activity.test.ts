@@ -139,3 +139,41 @@ test("accepts approval events with or without a request id", () => {
   content.events[0].approval = { requestId: null, status: "completed" };
   assert.equal(parseAgentRunActivity(content), null);
 });
+
+test("v2 step activities accept null output and apply ordered message deltas", () => {
+  const content = { ...structuredClone(snapshot.content), schemaVersion: 2 };
+  let state = reduceActivitySnapshot(null, { ...snapshot, content });
+  const legacyStep = deltas[0].patch[0];
+  assert.ok(legacyStep.op === "add");
+  const step = { ...legacyStep.value, type: "reasoning", title: "Thinking" };
+  const apply = (patch: ActivityDeltaEvent["patch"]) => {
+    state = reduceActivityDelta(state.activity, { ...deltas[0], patch }, state.sync);
+    assert.equal(state.sync, "ready");
+  };
+  apply([
+    { op: "add", path: "/events/-", value: step },
+    { op: "add", path: "/events/-", value: { ...step, id: "summary-1", sequence: 2, type: "model_summary", title: "模型总结" } },
+  ]);
+
+  const messages = [
+    { messageId: "reasoning-1", type: "reasoning", text: "检查服务状态" },
+    { messageId: "text-1", type: "text", text: "服务运行正常" },
+  ];
+  apply([
+    { op: "replace", path: "/events/0/output", value: { messages: [messages[0]] } },
+    { op: "add", path: "/events/0/output/messages/-", value: messages[1] },
+    { op: "replace", path: "/events/1/output", value: { messages: [messages[1]] } },
+  ]);
+  assert.deepEqual(parseAgentRunActivity(state.activity?.content)?.events.map(({ output }) => output), [
+    { messages },
+    { messages: [messages[1]] },
+  ]);
+
+  const invalid = reduceActivityDelta(state.activity, {
+    ...deltas[0],
+    patch: [{ op: "replace", path: "/events/1/output", value: { text: "旧格式" } }],
+  }, state.sync);
+  assert.equal(invalid.sync, "needs_snapshot");
+  assert.equal(invalid.activity, state.activity);
+  assert.equal(parseAgentRunActivity({ ...content, events: [legacyStep.value] }), null);
+});

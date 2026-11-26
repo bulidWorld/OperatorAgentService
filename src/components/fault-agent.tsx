@@ -11,7 +11,7 @@ import type {
   ApprovalRequest,
 } from "@/lib/approval";
 import { parseApprovalRequest, validateApprovalDecision } from "@/lib/approval";
-import { parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, type AgentRunEvent, type AgentRunActivity, type ActivitySyncState } from "@/lib/activity";
+import { isStepOutput, parseAgentRunActivity, reduceActivityDelta, reduceActivitySnapshot, type AgentRunEvent, type AgentRunActivity, type ActivitySyncState } from "@/lib/activity";
 import { useRef } from "react";
 import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 
@@ -115,7 +115,8 @@ const statusLabels: Record<string, string> = {
 
 const eventTypeLabels: Record<string, string> = {
   model_inference: "模型分析",
-  reasoning: "推理摘要",
+  reasoning: "推理",
+  model_summary: "模型总结",
   tool_execution: "工具执行",
   system_step: "系统步骤",
   approval: "人工审批",
@@ -129,8 +130,7 @@ function StatusIcon({ status, type }: { status: string; type: string }) {
   if (status === "completed") return <Check className="activity-status-icon" size={16} />;
   if (type === "tool_execution") return <Wrench className="activity-status-icon" size={16} />;
   if (type === "approval") return <ShieldCheck className="activity-status-icon" size={16} />;
-  if (type === "model_inference") return <Bot className="activity-status-icon" size={16} />;
-  if (type === "reasoning") return <Bot className="activity-status-icon" size={16} />;
+  if (type === "model_inference" || type === "reasoning" || type === "model_summary") return <Bot className="activity-status-icon" size={16} />;
   return <Activity className="activity-status-icon" size={16} />;
 }
 
@@ -140,13 +140,18 @@ function displayValue(value: unknown): string {
 }
 
 function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?: unknown; onOpen: (title: string, content: unknown) => void }) {
+  if ((item.type === "reasoning" || item.type === "model_summary") && isStepOutput(item.output) && item.output.messages.length) {
+    const messages = item.output.messages.map(({ type, text }) => `${type === "reasoning" ? "推理摘要" : "助手回复"}\n${text}`);
+    return <button type="button" className="activity-event-details-button" onClick={() => onOpen(item.title, messages.join("\n\n"))}>查看详细内容</button>;
+  }
   const details: Array<[string, unknown]> = [];
+  const output = item.output as Record<string, unknown> | null | undefined;
   if (item.input && Object.keys(item.input).length) details.push(["输入摘要", item.input]);
-  if (item.output?.text) details.push(["回复", item.output.text]);
-  if (item.output?.structuredContent) details.push(["结构化结果", item.output.structuredContent]);
-  if (item.output?.content?.length) details.push(["结果内容", item.output.content]);
-  if (item.output?.resources?.length) details.push(["资源", item.output.resources]);
-  if (item.type === "reasoning" && Array.isArray(item.output?.summary) && item.output.summary.length) details.push(["推理摘要", item.output.summary]);
+  if (output?.text) details.push(["回复", output.text]);
+  if (output?.structuredContent) details.push(["结构化结果", output.structuredContent]);
+  if (Array.isArray(output?.content) && output.content.length) details.push(["结果内容", output.content]);
+  if (Array.isArray(output?.resources) && output.resources.length) details.push(["资源", output.resources]);
+  if (item.type === "reasoning" && Array.isArray(output?.summary) && output.summary.length) details.push(["推理摘要", output.summary]);
   if (item.error) details.push(["错误摘要", item.error]);
   if (content !== undefined) details.splice(0, details.length, [item.type === "tool_execution" ? "工具调用结果" : "模型回复", content]);
   if (!details.length) return null;
@@ -182,7 +187,7 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
                 {item.tool && <p className="activity-tool-label"><Wrench size={12} />{item.tool.name}{item.tool.server ? <span>· {item.tool.server}</span> : null}</p>}
                 {item.type === "approval" && item.approval && <p className="activity-approval-ref"><ShieldCheck size={12} />{item.approval.requestId ? <>审批单 <code>{item.approval.requestId}</code></> : "需要人工审批"}</p>}
                 {item.status === "awaiting_approval" && item.type === "tool_execution" && <p className="activity-approval-ref"><ShieldCheck size={12} />需要审批 · 点击查看并处理</p>}
-                <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[String((item.correlation as { toolCallId?: string } | undefined)?.toolCallId ?? "")] : item.type === "model_inference" ? (item.output?.text ?? messageText[String((item.correlation as { messageId?: string } | undefined)?.messageId ?? "")]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
+                <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[item.correlation?.toolCallId ?? ""] : item.type === "model_inference" ? ((item.output as { text?: string } | null | undefined)?.text ?? messageText[item.correlation?.messageId ?? ""]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
               </article>
             </li>
           ))}

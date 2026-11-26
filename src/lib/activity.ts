@@ -3,6 +3,14 @@ import type { ActivityDeltaEvent, ActivityMessage, ActivitySnapshotEvent } from 
 export type RunStatus = "queued" | "running" | "awaiting_approval" | "completed" | "failed" | "cancelled";
 export type ActivityStatus = RunStatus;
 
+export type StepMessage = {
+  messageId: string;
+  type: "text" | "reasoning";
+  text: string;
+};
+
+export type StepOutput = { messages: StepMessage[] };
+
 export type AgentRunEvent = {
   id: string;
   sequence: number;
@@ -13,8 +21,8 @@ export type AgentRunEvent = {
   updatedAt: string;
   finishedAt: string | null;
   tool?: { name: string; server?: string };
-  input?: Record<string, unknown>;
-  output?: { text?: string; content?: unknown[]; structuredContent?: unknown; resources?: unknown[]; [key: string]: unknown };
+  input?: Record<string, unknown> | null;
+  output?: unknown;
   correlation?: { reasoningId?: string; messageId?: string; toolCallId?: string; [key: string]: unknown };
   error?: string | null;
   approval?: { requestId?: string | null; status?: "awaiting_approval" | string; [key: string]: unknown };
@@ -22,7 +30,7 @@ export type AgentRunEvent = {
 };
 
 export type AgentRunActivity = {
-  schemaVersion: number;
+  schemaVersion: 1 | 2;
   run: {
     runId: string;
     threadId: string;
@@ -42,8 +50,17 @@ export type ActivitySyncState = "ready" | "needs_snapshot";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
+export function isStepOutput(value: unknown): value is StepOutput {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !Array.isArray(value.messages)) return false;
+  return value.messages.every((message: unknown) =>
+    isRecord(message) && Object.keys(message).length === 3 &&
+    typeof message.messageId === "string" && message.messageId.length > 0 &&
+    (message.type === "text" || message.type === "reasoning") && typeof message.text === "string"
+  );
+}
+
 export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.run) || !Array.isArray(value.events)) return null;
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2) || !isRecord(value.run) || !Array.isArray(value.events)) return null;
   const run = value.run;
   if (
     typeof run.runId !== "string" || !run.runId || typeof run.threadId !== "string" || !run.threadId ||
@@ -56,6 +73,18 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
   const events = value.events as unknown[];
   if (!events.every((entry) => {
     if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id || !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1 || typeof entry.type !== "string" || typeof entry.title !== "string" || !entry.title || !["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"].includes(String(entry.status)) || typeof entry.startedAt !== "string" || Number.isNaN(Date.parse(entry.startedAt)) || typeof entry.updatedAt !== "string" || Number.isNaN(Date.parse(entry.updatedAt)) || !(entry.finishedAt === null || (typeof entry.finishedAt === "string" && !Number.isNaN(Date.parse(entry.finishedAt)))) || !(entry.error === null || typeof entry.error === "string")) return false;
+    if (value.schemaVersion === 2) {
+      if (!(entry.input === null || isRecord(entry.input)) || !Object.hasOwn(entry, "output")) return false;
+      if (entry.type === "reasoning" || entry.type === "model_summary") {
+        const title = entry.type === "reasoning" ? "Thinking" : "模型总结";
+        return entry.title === title && (entry.output === null || isStepOutput(entry.output));
+      }
+      return entry.type === "tool_execution" &&
+        isRecord(entry.tool) && typeof entry.tool.name === "string" && entry.tool.name.length > 0 &&
+        (entry.tool.server === undefined || typeof entry.tool.server === "string") &&
+        isRecord(entry.correlation) && Object.keys(entry.correlation).length === 1 &&
+        typeof entry.correlation.toolCallId === "string" && entry.correlation.toolCallId.length > 0;
+    }
     if (entry.type === "model_inference") return entry.correlation === undefined || (isRecord(entry.correlation) && typeof entry.correlation.messageId === "string" && entry.correlation.messageId.length > 0);
     if (entry.type === "reasoning") return entry.correlation === undefined || (isRecord(entry.correlation) && typeof entry.correlation.reasoningId === "string" && entry.correlation.reasoningId.length > 0);
     if (entry.type === "tool_execution") return isRecord(entry.tool) && typeof entry.tool.name === "string" && entry.tool.name.length > 0 && (entry.correlation === undefined || (isRecord(entry.correlation) && typeof entry.correlation.toolCallId === "string" && entry.correlation.toolCallId.length > 0));
