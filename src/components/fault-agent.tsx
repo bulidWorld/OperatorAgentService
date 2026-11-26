@@ -18,7 +18,7 @@ import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [runUsers, setRunUsers] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, string>>({});
-  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
+  const [failedRuns, setFailedRuns] = useState<Record<string, boolean>>({});
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
   const [toolResults, setToolResults] = useState<Record<string, unknown>>({});
   const [messageText, setMessageText] = useState<Record<string, string>>({});
@@ -31,7 +31,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     setActivities({});
     setRunUsers({});
     setResults({});
-    setRunErrors({});
+    setFailedRuns({});
     setToolResults({});
     setMessageText({});
     messageTextCache.current = {};
@@ -68,11 +68,9 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
           setResults((current) => ({ ...current, [event.runId]: text }));
         }
       },
-      onRunErrorEvent: ({ event }) => {
+      onRunErrorEvent: () => {
         const runId = activeRunId.current;
-        if (runId && typeof event.message === "string" && event.message.trim()) {
-          setRunErrors((current) => ({ ...current, [runId]: event.message }));
-        }
+        if (runId) setFailedRuns((current) => ({ ...current, [runId]: true }));
       },
       onMessagesSnapshotEvent: ({ event }) => hydrate(event.messages),
       onTextMessageContentEvent: ({ event, textMessageBuffer }) => {
@@ -101,7 +99,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     return () => subscription.unsubscribe();
   }, [agent, isReady, agent.threadId]);
 
-  return { activities, runUsers, results, runErrors, toolResults, messageText };
+  return { activities, runUsers, results, failedRuns, toolResults, messageText };
 }
 
 const statusLabels: Record<string, string> = {
@@ -395,7 +393,7 @@ const approvalOpener: { current: ((event: AgentRunEvent) => void) | null } = { c
 
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities, runUsers, results, runErrors, toolResults, messageText } = useAgentActivity(agent, isReady);
+  const { activities, runUsers, results, failedRuns, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const openApproval = (event: AgentRunEvent) => approvalOpener.current?.(event);
   const approval = useInterrupt({
@@ -422,7 +420,7 @@ export default function FaultAgent() {
           chatView={FaultAgentChatView}
           labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
           messageView={{ children: ({ messages }) => {
-            const turns = buildFaultAgentTurns(messages, activities, runUsers, results, runErrors);
+            const turns = buildFaultAgentTurns(messages, activities, runUsers, results, failedRuns);
             return <div className="fault-agent-conversation">
               {!turns.length && <div className="fault-agent-welcome"><span className="fault-agent-welcome-icon"><Bot size={28} /></span><h3>从一个问题开始排查</h3><p>描述故障现象，或询问近期告警与资源瓶颈。<br />执行过程和分析结果会按轮次保留在这里。</p></div>}
               {turns.map((turn, index) => <section className="fault-agent-turn" key={turn.user.id} aria-label={`第 ${index + 1} 轮对话`}>
@@ -430,7 +428,7 @@ export default function FaultAgent() {
                 <div className="fault-agent-reply">
                   <div className="fault-agent-reply-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><b>故障分析助手</b><span>第 {index + 1} 轮</span></div>
                   {turn.runs.map(({ activity, sync }) => <ActivityTimeline key={activity.run.runId} activity={activity} sync={sync} toolResults={toolResults} messageText={messageText} expanded={expandedRuns[activity.run.runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))} />)}
-                  {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
+                  {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.failed || turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
                 </div>
               </section>)}
             </div>;

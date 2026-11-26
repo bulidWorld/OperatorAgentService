@@ -9,17 +9,15 @@ export function buildFaultAgentTurns(
   activities: Record<string, RunEntry>,
   runUsers: Record<string, string>,
   results: Record<string, string>,
-  errors: Record<string, string> = {},
+  failedRuns: Record<string, boolean> = {},
 ) {
-  const turns: Array<{ user: { id: string; content: string }; runs: RunEntry[]; reply: string }> = [];
+  const turns: Array<{ user: { id: string; content: string }; runs: RunEntry[]; reply: string; failed: boolean }> = [];
   const owners = { ...runUsers };
   let current: (typeof turns)[number] | undefined;
   for (const message of messages) {
     if (message.role === "user") {
-      current = { user: { id: message.id, content: typeof message.content === "string" ? message.content : "" }, runs: [], reply: "" };
+      current = { user: { id: message.id, content: typeof message.content === "string" ? message.content : "" }, runs: [], reply: "", failed: false };
       turns.push(current);
-    } else if (current && message.role === "assistant" && typeof message.content === "string" && message.content.trim()) {
-      current.reply = message.content;
     } else if (current && message.role === "activity") {
       const runId = (message.content as AgentRunActivity | undefined)?.run?.runId;
       if (runId && !owners[runId]) owners[runId] = current.user.id;
@@ -29,15 +27,13 @@ export function buildFaultAgentTurns(
     const turn = turns.find((item) => item.user.id === owners[entry.activity.run.runId]);
     if (turn) turn.runs.push(entry);
   }
-  // RUN_FINISHED.result covers producers that don't emit a final text message.
   for (const [runId, reply] of Object.entries(results)) {
     const turn = turns.find((item) => item.user.id === owners[runId]);
     if (turn && reply.trim()) turn.reply = reply;
   }
-  // RUN_ERROR has no runId of its own in AG-UI; errors are keyed by the active runId by the subscriber.
-  for (const [runId, error] of Object.entries(errors)) {
+  for (const [runId, failed] of Object.entries(failedRuns)) {
     const turn = turns.find((item) => item.user.id === owners[runId]);
-    if (turn && error.trim()) turn.reply = error;
+    if (turn && failed) turn.failed = true;
   }
   return turns;
 }
