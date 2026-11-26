@@ -20,6 +20,7 @@ properties:
     description: 按 sequence 升序排列的平铺活动条目。
     items:
       oneOf:
+        - $ref: '#/$defs/modeSelection'
         - $ref: '#/$defs/reasoning'
         - $ref: '#/$defs/modelSummary'
         - $ref: '#/$defs/toolExecution'
@@ -140,7 +141,7 @@ $defs:
                 minLength: 1
                 description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
   reasoning:
-    description: route_turn、assistant 或 assess_pod 步骤的 Thinking 活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
+    description: assistant 或 assess_pod 步骤的 Thinking 活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
@@ -149,6 +150,19 @@ $defs:
             const: reasoning
           title:
             const: Thinking
+          output:
+            $ref: '#/$defs/stepOutput'
+  modeSelection:
+    description: route_turn 步骤的模式选择活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        properties:
+          type:
+            const: mode_selection
+            description: 固定为 mode_selection，表示入口模式选择活动。
+          title:
+            const: 模式选择
           output:
             $ref: '#/$defs/stepOutput'
   modelSummary:

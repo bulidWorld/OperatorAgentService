@@ -113,6 +113,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const eventTypeLabels: Record<string, string> = {
+  mode_selection: "模式选择",
   model_inference: "模型分析",
   reasoning: "推理",
   model_summary: "模型总结",

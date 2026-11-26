@@ -169,6 +169,30 @@ test("accepts approval events with or without a request id", () => {
   assert.equal(parseAgentRunActivity(content), null);
 });
 
+test("v2 mode selection stays synchronized through completion and the next step", () => {
+  const content = { ...structuredClone(snapshot.content), schemaVersion: 2 };
+  const first = deltas[0].patch[0];
+  assert.ok(first.op === "add");
+  const mode = { ...first.value, id: "mode-1", type: "mode_selection", title: "模式选择" };
+  let state = reduceActivitySnapshot(null, { ...snapshot, content });
+  const patches: ActivityDeltaEvent["patch"][] = [
+    [{ op: "add", path: "/events/-", value: mode }],
+    [
+      { op: "replace", path: "/events/0/status", value: "completed" },
+      { op: "replace", path: "/events/0/finishedAt", value: "2026-11-19T01:18:31.000Z" },
+      { op: "replace", path: "/events/0/output", value: null },
+    ],
+    [{ op: "add", path: "/events/-", value: { ...first.value, sequence: 2, type: "reasoning", title: "Thinking" } }],
+  ];
+  for (const patch of patches) {
+    state = reduceActivityDelta(state.activity, { ...deltas[0], patch }, state.sync);
+    assert.equal(state.sync, "ready");
+  }
+  const events = parseAgentRunActivity(state.activity?.content)?.events;
+  assert.equal(events?.[0].status, "completed");
+  assert.equal(events?.[1].type, "reasoning");
+});
+
 test("v2 step activities accept null output and apply ordered message deltas", () => {
   const content = { ...structuredClone(snapshot.content), schemaVersion: 2 };
   let state = reduceActivitySnapshot(null, { ...snapshot, content });

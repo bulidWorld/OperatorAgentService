@@ -75,6 +75,7 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
     if (!isRecord(entry) || typeof entry.id !== "string" || !entry.id || !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1 || typeof entry.type !== "string" || typeof entry.title !== "string" || !entry.title || !["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"].includes(String(entry.status)) || typeof entry.startedAt !== "string" || Number.isNaN(Date.parse(entry.startedAt)) || typeof entry.updatedAt !== "string" || Number.isNaN(Date.parse(entry.updatedAt)) || !(entry.finishedAt === null || (typeof entry.finishedAt === "string" && !Number.isNaN(Date.parse(entry.finishedAt)))) || !(entry.error === null || typeof entry.error === "string")) return false;
     if (value.schemaVersion === 2) {
       if (!(entry.input === null || isRecord(entry.input)) || !Object.hasOwn(entry, "output")) return false;
+      if (entry.type === "mode_selection") return entry.title === "模式选择" && entry.output === null;
       if (entry.type === "reasoning" || entry.type === "model_summary") {
         const title = entry.type === "reasoning" ? "Thinking" : "模型总结";
         return entry.title === title && (entry.output === null || isStepOutput(entry.output));
