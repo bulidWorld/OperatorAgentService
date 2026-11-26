@@ -504,8 +504,19 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
             };
           }
           if (tool.name === "query_pod_details") {
+            const podArgs = args as Parameters<typeof getPodDetails>[0];
             return {
-              content: [{ type: "text", text: serialized }],
+              content: [
+                {
+                  type: "resource" as const,
+                  resource: {
+                    type: "text" as const,
+                    uri: `k8s:///namespaces/${encodeURIComponent(podArgs.namespace)}/pods/${encodeURIComponent(podArgs.pod)}`,
+                    mimeType: "application/json",
+                    text: serialized,
+                  },
+                },
+              ],
               isError: false,
             };
           }

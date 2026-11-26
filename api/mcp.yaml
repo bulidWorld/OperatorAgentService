@@ -69,7 +69,7 @@ server:
     tools/list: 返回可调用的 Tool 定义；首版不分页，不返回 nextCursor。
     tools/call: 校验名称、参数、权限后执行；不调用本服务大模型。
 resultContract:
-  success: 除 query_pod_logs 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 MCP EmbeddedResource 内容块，resource.type=text，resource.resource.uri 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志正文；query_pod_details 的 content.text 为 Kubernetes API 返回的完整 Pod JSON，不返回 structuredContent。其他工具的 result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
+  success: 除 query_pod_logs、query_pod_details 外，result.content 至少包含一项 text，其 text 为业务结果的 JSON 字符串；query_pod_logs 的 content 返回 MCP EmbeddedResource 内容块，resource.type=text，resource.resource.uri 为 log:///k8s/{namespace}/{pod}.log，mimeType 为 text/plain; charset=utf-8，text 为日志正文；query_pod_details 的 content 返回 MCP EmbeddedResource 内容块，resource.type=text，resource.resource.uri 为 k8s:///namespaces/{namespace}/pods/{pod}，mimeType 为 application/json，text 为 Kubernetes API 返回的完整 Pod JSON；两者均不返回 structuredContent。其他工具的 result.structuredContent 为通过对应 outputSchema 校验的业务对象；result.isError=false。
   failure: 工具执行、工具授权或上游业务失败仍作为 JSON-RPC 成功响应返回（result.isError=false）；content 文本与 structuredContent 中的 code、errorMessage 保持一致。errorMessage 说明具体失败，敏感信息必须脱敏。
   notFound: query_alert_details 的 found=false 是正常业务结果，isError=false。
   httpErrors:
@@ -112,7 +112,7 @@ executionRules:
   query_pods:
   - 查询所有命名空间的 Pod；containerName 省略或为空时返回全部 Pod，否则按 Pod 中任一容器名称不区分大小写的子串匹配过滤。
   query_pod_details:
-  - 按 namespace 与 pod 精确查询 Pod，成功时以 text 内容返回 Kubernetes API 完整 Pod JSON，包括资源元数据、规格定义和实际运行状态；不定义 Pod 的结构化输出字段。
+  - 按 namespace 与 pod 精确查询 Pod，成功时以 EmbeddedResource 返回 Kubernetes API 完整 Pod JSON，包括资源元数据、规格定义和实际运行状态；URI 为 k8s:///namespaces/{namespace}/pods/{pod}，mimeType 为 application/json，不返回 structuredContent。
   - Kubernetes API 返回 404 时通过 POD_NOT_FOUND 错误码表示对象不存在。
   restart_pod:
   - 本工具通过删除指定 Pod 触发重启；调用时使用具备 mcp:restart 权限的身份。
@@ -468,6 +468,10 @@ tools:
     additionalProperties: false
   outputSchema:
     type: object
+    properties:
+      errorMessage:
+        type: string
+        description: 工具执行失败时的具体原因；执行成功时为空。
     additionalProperties: true
   annotations:
     readOnlyHint: true
