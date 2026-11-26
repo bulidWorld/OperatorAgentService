@@ -37,9 +37,9 @@ function describe(event: string, fields: Record<string, unknown>): string {
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 type Category = "business" | "http" | "error";
 type LogType = "business" | "http" | "access" | "exception" | "schedule";
-const HTTP_DETAIL_FIELDS = new Set(["requestParams", "responseResult"]);
-const HTTP_DETAIL_MAX_CHARS = 5000;
-const TRUNCATED_SUFFIX = "...[已截断]";
+const HTTP_DETAIL_FIELDS = new Set(["requestParams", "responseResult", "requestBody", "responseBody"]);
+const HTTP_DETAIL_MAX_CHARS = 20000;
+const TRUNCATED_MARKER = ".................................";
 let lastCleanup = 0;
 let activeDirectory = "";
 let cleanupTimer: NodeJS.Timeout | undefined;
@@ -69,11 +69,14 @@ export function cleanupLogs(directory = logDirectory(), now = Date.now()) {
   }
 }
 
-/** 将 HTTP 参数或响应限制在固定字符数内，超限内容转换为带标记的 JSON 文本。 */
+/** 将 HTTP 参数或响应限制在固定字符数内，超出时保留首尾内容。 */
 function limitHttpDetail(value: unknown): unknown {
   const serialized = JSON.stringify(value);
   if (serialized === undefined || serialized.length <= HTTP_DETAIL_MAX_CHARS) return value;
-  return `${serialized.slice(0, HTTP_DETAIL_MAX_CHARS - TRUNCATED_SUFFIX.length)}${TRUNCATED_SUFFIX}`;
+  const retainedChars = HTTP_DETAIL_MAX_CHARS - TRUNCATED_MARKER.length;
+  const leadingChars = Math.ceil(retainedChars / 2);
+  const trailingChars = Math.floor(retainedChars / 2);
+  return `${serialized.slice(0, leadingChars)}${TRUNCATED_MARKER}${serialized.slice(-trailingChars)}`;
 }
 
 /** 格式化并写入一条业务、HTTP 或错误日志。
@@ -85,7 +88,8 @@ function limitHttpDetail(value: unknown): unknown {
 function write(category: Category, event: string, fields: Record<string, unknown>) {
   const now = new Date();
   fields = { ...logContext.getStore(), ...fields };
-  if (process.env.HTTP_LOG_INCLUDE_PAYLOAD !== "true") {
+  const hasHttpPayload = fields.direction === "outbound" || fields.direction === "inbound";
+  if (process.env.HTTP_LOG_PAYLOAD_ENABLED !== "true" || !hasHttpPayload) {
     fields = Object.fromEntries(
       Object.entries(fields).filter(([key]) => !HTTP_DETAIL_FIELDS.has(key)),
     );
@@ -204,7 +208,7 @@ export const httpLog = (event: string, fields: Record<string, unknown>) => write
  * @returns action 返回的 Response；异常会记录后继续抛出。
  */
 export async function withAccessLog<T extends { status: number }>(
-  request: { method: string; url: string },
+  request: Request,
   operation: string,
   action: () => Promise<T>,
 ): Promise<T> {
@@ -216,13 +220,24 @@ export async function withAccessLog<T extends { status: number }>(
     requestId, traceId, direction: "inbound", method: request.method,
     path: new URL(request.url).pathname, operation, calledAt,
   };
+  const includePayload = process.env.HTTP_LOG_PAYLOAD_ENABLED === "true";
+  const requestBody = includePayload && request.method !== "GET" && request.method !== "HEAD"
+    ? await request.clone().text().catch(() => undefined)
+    : undefined;
+  let responseBody: string | undefined;
   return withLogContext({ requestId, traceId, operation }, async () => {
-    httpLog("request.started", context);
+    httpLog("request.started", {
+      ...context,
+      ...(requestBody === undefined ? {} : { requestBody }),
+    });
     let status = 500;
     let errorMessage: string | undefined;
     try {
       const response = await action();
       status = response.status;
+      if (includePayload && response instanceof Response) {
+        responseBody = await response.clone().text().catch(() => undefined);
+      }
       return response;
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
@@ -230,7 +245,10 @@ export async function withAccessLog<T extends { status: number }>(
       throw error;
     } finally {
       httpLog("request.completed", {
-        ...context, returnedAt: new Date().toISOString(),
+        ...context,
+        ...(requestBody === undefined ? {} : { requestBody }),
+        ...(responseBody === undefined ? {} : { responseBody }),
+        returnedAt: new Date().toISOString(),
         durationMs: Math.round(performance.now() - started), status,
         result: status < 400 ? "success" : "error", errorMessage,
       });

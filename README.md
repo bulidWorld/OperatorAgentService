@@ -141,7 +141,7 @@ curl -i http://localhost:3000/api/webhooks/alertmanager \
 - `business-YYYY-MM-DD.log`：监控查询开始、完成、模式和资源/告警数量。
 - `http-YYYY-MM-DD.log`：入站请求记录为 `log_type=access`，服务发起的请求记录为 `log_type=http`。包含 Prometheus、Kubernetes API、LangGraph Server 和主动 HTTP 探测。每条记录均为 JSON，包含 `method`、`path`、`status`、`duration_ms`；请求开始时尚无响应状态，`status` 与 `duration_ms` 为 `null`，完成记录包含实际值。请求 ID 和 `trace_id` 用于关联同一调用链。日志不记录认证头或 URL 凭据。
 
-设置 `HTTP_LOG_INCLUDE_PAYLOAD=true` 后，HTTP 日志会额外记录 `requestParams` 请求参数和 `responseResult` 响应结果；每项最多记录 5000 个字符，超出部分以 `...[已截断]` 标记截断。设为 `false` 或不配置时不记录。响应内容可能包含业务敏感信息，生产环境请谨慎开启；认证头和 URL 凭据始终不会记录。
+设置 `HTTP_LOG_PAYLOAD_ENABLED=true` 后，`log_type=access` 的入站请求日志会额外记录请求体和响应体；单项超过 20000 个字符时，保留前后各一半并以 `.................................` 替代中间内容。设为 `false` 或不配置时不记录请求体和响应体。响应内容可能包含业务敏感信息，生产环境请谨慎开启；认证头和 URL 凭据始终不会记录。
 - `error-YYYY-MM-DD.log`：异常信息及完整堆栈，同时输出到标准错误控制台。
 
 控制台和日志文件统一使用 JSON，每条包含 `timestamp`、`level`、`log_type` 和 `message`，异常记录还包含 `exceptionInfo` 堆栈，供 Kubernetes 收集和检索。`level` 使用 `DEBUG`、`INFO`、`WARN`、`ERROR`；`log_type` 使用 `business`、`http`、`access`、`exception`、`schedule`。单一类型使用字符串；定时任务中发生 HTTP 请求或异常时使用数组组合类型，例如 `["schedule","http"]`。日志文件按业务、HTTP、异常分类并每日轮转，首次写入及每小时清理最后修改时间超过 14 天的文件。写入失败会输出符合相同 JSON 格式的异常日志，避免中断业务。容器已创建默认目录并赋予 node 用户权限。K8s 示例使用 `emptyDir`，Pod 删除后日志会丢失；需要跨 Pod 保存时，将日志卷替换为 PVC 并确保运行用户可写。本地示例：`LOG_DIR=/tmp/operator-agent-service/log npm run dev`。

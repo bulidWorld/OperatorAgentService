@@ -7,7 +7,7 @@ data:
   PROMETHEUS_URL: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   LANGGRAPH_DEPLOYMENT_URL: "http://langgraph-service-service.langgraph-service.svc.cluster.local:9090/agent"
   DEMO_MODE: "false"
-  HTTP_LOG_INCLUDE_PAYLOAD: "true"
+  HTTP_LOG_PAYLOAD_ENABLED: "true"
   LLM_BASE_URL: "http://192.168.100.133:8787/v1"
   LLM_API_KEY: "gw_OiKNMlPLIkwC4DkneUTOU3hux8_XlTdiRq5bHU0z9ec"
   LLM_MODEL: "gpt-6-luna"

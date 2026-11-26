@@ -8,7 +8,7 @@ import { getAlerts, query } from "./prometheus/http";
 
 test("separate logs, stack traces, retention and outbound request results", async () => {
   const directory = mkdtempSync(join(tmpdir(), "kube-logs-"));
-  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, payload: process.env.HTTP_LOG_INCLUDE_PAYLOAD, fetch: globalThis.fetch, error: console.error, info: console.log };
+  const previous = { log: process.env.LOG_DIR, url: process.env.PROMETHEUS_URL, payload: process.env.HTTP_LOG_PAYLOAD_ENABLED, fetch: globalThis.fetch, error: console.error, info: console.log };
   process.env.LOG_DIR = directory;
   process.env.PROMETHEUS_URL = "http://localhost:9090";
   const consoleRecords: string[] = [];
@@ -31,9 +31,9 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     globalThis.fetch = async () => new Response(JSON.stringify({ status: "error", error: "bad query" }));
     await assert.rejects(getAlerts(), /bad query/);
     await withAccessLog(
-      { method: "POST", url: "http://localhost/api/test?token=hidden" },
+      new Request("http://localhost/api/test?token=hidden", { method: "POST", body: "request data" }),
       "test.access",
-      async () => ({ status: 204 }),
+      async () => new Response(null, { status: 204 }),
     );
     const records = (category: string) => readdirSync(directory)
       .filter(name => name.startsWith(`${category}-`))
@@ -73,6 +73,8 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     assert.equal(completed[4].path, "/api/test");
     assert.equal(completed[4].status, 204);
     assert.equal(completed[4].duration_ms >= 0, true);
+    assert.equal(completed[4].requestBody, undefined);
+    assert.equal(completed[4].responseBody, undefined);
     for (const name of readdirSync(directory).filter(name => name.endsWith(".log"))) {
       for (const line of readFileSync(join(directory, name), "utf8").trim().split("\n")) {
         const record = JSON.parse(line);
@@ -94,31 +96,43 @@ test("separate logs, stack traces, retention and outbound request results", asyn
     assert.ok(readdirSync(directory).includes("keep.txt"));
     assert.ok(records("business").length > 0);
 
-    process.env.HTTP_LOG_INCLUDE_PAYLOAD = "true";
+    process.env.HTTP_LOG_PAYLOAD_ENABLED = "true";
     globalThis.fetch = async () => new Response(JSON.stringify({ status: "success", data: { alerts: [{ state: "firing" }] } }));
     await getAlerts();
     const detailed = records("http").filter(record => record.event === "request.completed").at(-1);
     assert.deepEqual(detailed.requestParams, {});
     assert.deepEqual(detailed.responseResult, { status: "success", data: { alerts: [{ state: "firing" }] } });
 
+    await withAccessLog(
+      new Request("http://localhost/api/access", { method: "POST", body: "request payload" }),
+      "test.access.payload",
+      async () => new Response("response payload", { status: 200 }),
+    );
+    const accessRecords = records("http");
+    const accessStarted = accessRecords.filter(record => record.event === "request.started").at(-1);
+    const accessCompleted = accessRecords.filter(record => record.event === "request.completed").at(-1);
+    assert.equal(accessStarted.log_type, "access");
+    assert.equal(accessStarted.requestBody, "request payload");
+    assert.equal(accessCompleted.responseBody, "response payload");
+
     globalThis.fetch = async () => new Response(JSON.stringify({
       status: "success",
-      data: { resultType: "vector", result: [], padding: "r".repeat(6000) },
+      data: { resultType: "vector", result: [], padding: "r".repeat(22000) },
     }));
-    await query("q".repeat(6000));
+    await query("q".repeat(22000));
     const detailedRecords = records("http");
     const truncatedRequest = detailedRecords.filter(record => record.event === "request.started").at(-1).requestParams;
     const truncatedResponse = detailedRecords.filter(record => record.event === "request.completed").at(-1).responseResult;
     assert.equal(typeof truncatedRequest, "string");
     assert.equal(typeof truncatedResponse, "string");
-    assert.equal(truncatedRequest.length, 5000);
-    assert.equal(truncatedResponse.length, 5000);
-    assert.match(truncatedRequest, /\.\.\.\[已截断\]$/);
-    assert.match(truncatedResponse, /\.\.\.\[已截断\]$/);
+    assert.equal(truncatedRequest.length, 20000);
+    assert.equal(truncatedResponse.length, 20000);
+    assert.equal(truncatedRequest.split(".................................").length, 2);
+    assert.equal(truncatedResponse.split(".................................").length, 2);
   } finally {
     if (previous.log === undefined) delete process.env.LOG_DIR; else process.env.LOG_DIR = previous.log;
     if (previous.url === undefined) delete process.env.PROMETHEUS_URL; else process.env.PROMETHEUS_URL = previous.url;
-    if (previous.payload === undefined) delete process.env.HTTP_LOG_INCLUDE_PAYLOAD; else process.env.HTTP_LOG_INCLUDE_PAYLOAD = previous.payload;
+    if (previous.payload === undefined) delete process.env.HTTP_LOG_PAYLOAD_ENABLED; else process.env.HTTP_LOG_PAYLOAD_ENABLED = previous.payload;
     globalThis.fetch = previous.fetch;
     console.error = previous.error;
     console.log = previous.info;

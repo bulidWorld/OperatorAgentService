@@ -7,3 +7,9 @@ BASE_URL=http://127.0.0.1:3000 bash api/curl.example/01-monitor-nodes.sh
 ```
 
 webhook 示例需设置 `WEBHOOK_TOKEN`，MCP 示例需设置 `MCP_TOKEN`；两者分别对应服务端配置的 Alertmanager webhook token 和 MCP caller token。MCP 示例需先初始化，再调用后续方法；每个脚本独立发送一次 JSON-RPC 请求。`curl --fail-with-body` 会在 HTTP 错误时保留并显示响应体。
+
+查询指定 Pod 的完整详情示例（需要安装 `jq`）：
+
+```bash
+MCP_TOKEN='<caller-token>' POD='<pod-name>' NAMESPACE='<namespace>' bash api/curl.example/11-mcp-query-pod-details.sh
+```

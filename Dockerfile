@@ -1,6 +1,6 @@
 FROM node:24-alpine AS build
 WORKDIR /app
-RUN npm config set registry https://mirrors.cloud.tencent.com/npm/
+RUN npm config set registry https://registry.npmmirror.com
 COPY package*.json ./
 RUN npm ci
 COPY . .
@@ -8,7 +8,7 @@ RUN npm run build
 FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=9090
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories \
     && apk add --no-cache python3 py3-psycopg2 iputils curl busybox-extras
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
