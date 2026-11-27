@@ -8,9 +8,12 @@ export type RunStatus =
   | "queued"
   | "running"
   | "awaiting_approval"
+  | "awaiting_input"
+  | "awaiting_auth"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "rejected";
 export type ActivityStatus = RunStatus;
 
 export type StepMessage = {
@@ -50,6 +53,80 @@ export type AgentRunEvent = {
   [key: string]: unknown;
 };
 
+/** A2A 任务生命周期状态，可使用协议字符串或对应数值。 */
+export type A2ATaskState =
+  | "TASK_STATE_UNSPECIFIED"
+  | "TASK_STATE_SUBMITTED"
+  | "TASK_STATE_WORKING"
+  | "TASK_STATE_COMPLETED"
+  | "TASK_STATE_FAILED"
+  | "TASK_STATE_CANCELED"
+  | "TASK_STATE_INPUT_REQUIRED"
+  | "TASK_STATE_REJECTED"
+  | "TASK_STATE_AUTH_REQUIRED"
+  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+/** A2A 消息内容片段，支持文本、结构化数据和文件。 */
+export type A2APart = {
+  text?: string;
+  data?: unknown;
+  url?: string;
+  raw?: string;
+  filename?: string;
+  mediaType?: string;
+  [key: string]: unknown;
+};
+
+/** A2A 对话消息。 */
+export type A2AMessage = {
+  messageId?: string;
+  role?: "ROLE_UNSPECIFIED" | "ROLE_USER" | "ROLE_AGENT" | number | string;
+  parts?: A2APart[];
+  [key: string]: unknown;
+};
+
+/** A2A 任务状态及可选说明消息。 */
+export type A2ATaskStatus = {
+  state: A2ATaskState;
+  message?: A2AMessage;
+  timestamp?: string;
+  [key: string]: unknown;
+};
+
+/** A2A 任务产物及其内容。 */
+export type A2AArtifact = {
+  artifactId?: string;
+  name?: string;
+  description?: string;
+  parts?: A2APart[];
+  [key: string]: unknown;
+};
+
+/** A2A 完整任务快照。 */
+export type A2ATaskSnapshot = {
+  id?: string;
+  contextId?: string;
+  status?: A2ATaskStatus;
+  history?: A2AMessage[];
+  artifacts?: A2AArtifact[];
+  [key: string]: unknown;
+};
+
+/** A2A 进度更新中的原始协议事件。 */
+export type A2AUpdate =
+  | { task: A2ATaskSnapshot; [key: string]: unknown }
+  | { message: A2AMessage; [key: string]: unknown }
+  | { status: A2ATaskStatus; [key: string]: unknown }
+  | { artifact: A2AArtifact; append?: boolean; lastChunk?: boolean; [key: string]: unknown };
+
+/** A2A_PROGRESS_EVENT 对应的任务进度数据。 */
+export type A2AProgress = {
+  taskId: string;
+  status: A2ATaskStatus;
+  update: A2AUpdate;
+  [key: string]: unknown;
+};
+
 export type AgentRunActivity = {
   schemaVersion: 1 | 2;
   run: {
@@ -81,6 +158,7 @@ const activityTypes = {
     "model_inference",
     "reasoning",
     "tool_execution",
+    "a2a_task",
     "system_step",
     "approval",
   ]),
@@ -89,6 +167,7 @@ const activityTypes = {
     "reasoning",
     "model_summary",
     "tool_execution",
+    "a2a_task",
   ]),
 };
 
@@ -141,6 +220,9 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
       "completed",
       "failed",
       "cancelled",
+      "awaiting_input",
+      "awaiting_auth",
+      "rejected",
     ].includes(String(run.status)) ||
     typeof run.startedAt !== "string" ||
     Number.isNaN(Date.parse(run.startedAt)) ||
@@ -181,6 +263,9 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
           "completed",
           "failed",
           "cancelled",
+          "awaiting_input",
+          "awaiting_auth",
+          "rejected",
         ].includes(String(entry.status)) ||
         typeof entry.startedAt !== "string" ||
         Number.isNaN(Date.parse(entry.startedAt)) ||
@@ -209,6 +294,18 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
             (entry.output === null || isStepOutput(entry.output))
           );
         }
+        if (entry.type === "a2a_task")
+          return (
+            isRecord(entry.correlation) &&
+            Object.keys(entry.correlation).length === 1 &&
+            typeof entry.correlation.taskId === "string" &&
+            isRecord(entry.output) &&
+            typeof entry.output.taskId === "string" &&
+            isRecord(entry.output.status) &&
+            Object.hasOwn(entry.output.status, "state") &&
+            isRecord(entry.output.update) &&
+            ["running", "awaiting_input", "awaiting_auth", "completed", "failed", "cancelled", "rejected"].includes(String(entry.status))
+          );
         return (
           entry.type === "tool_execution" &&
           isRecord(entry.tool) &&
@@ -253,6 +350,16 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
             (typeof entry.request_id === "string" && entry.request_id.length > 0)) &&
           (entry.status !== "awaiting_approval" ||
             (typeof entry.request_id === "string" && entry.request_id.length > 0))
+        );
+      if (entry.type === "a2a_task")
+        return (
+          isRecord(entry.correlation) &&
+          typeof entry.correlation.taskId === "string" &&
+          isRecord(entry.output) &&
+          typeof entry.output.taskId === "string" &&
+          isRecord(entry.output.status) &&
+          Object.hasOwn(entry.output.status, "state") &&
+          isRecord(entry.output.update)
         );
       if (entry.type === "approval")
         return (

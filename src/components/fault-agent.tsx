@@ -124,9 +124,12 @@ const statusLabels: Record<string, string> = {
   queued: "排队中",
   running: "进行中",
   awaiting_approval: "等待审批",
+  awaiting_input: "等待补充信息",
+  awaiting_auth: "等待授权",
   completed: "已完成",
   failed: "执行失败",
   cancelled: "已取消",
+  rejected: "已拒绝",
 };
 
 const eventTypeLabels: Record<string, string> = {
@@ -135,6 +138,7 @@ const eventTypeLabels: Record<string, string> = {
   reasoning: "推理",
   model_summary: "模型总结",
   tool_execution: "工具执行",
+  a2a_task: "远端任务",
   system_step: "系统步骤",
   approval: "人工审批",
 };
@@ -175,6 +179,22 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
   if ((item.type === "reasoning" || item.type === "model_summary") && isStepOutput(item.output) && item.output.messages.length) {
     const messages = item.output.messages.map(({ type, text }) => `${type === "reasoning" ? "推理摘要" : "助手回复"}\n${text}`);
     return <button type="button" className="activity-event-details-button" onClick={() => onOpen(item.title, messages.join("\n\n"))}>查看详细内容</button>;
+  }
+  if (item.type === "a2a_task" && item.output) {
+    const progress = item.output as { taskId?: string; status?: { state?: unknown; message?: unknown }; update?: unknown };
+    const state = progress.status?.state;
+    const stateLabel = typeof state === "number"
+      ? ["未指定", "已提交", "执行中", "已完成", "执行失败", "已取消", "等待输入", "已拒绝", "等待授权"][state] ?? String(state)
+      : typeof state === "string" ? state.replace("TASK_STATE_", "").toLowerCase().replaceAll("_", " ") : "状态未知";
+    const update = progress.update as Record<string, unknown> | undefined;
+    const message = update?.message ?? progress.status?.message;
+    const artifact = update?.artifact;
+    return <div className="activity-a2a-summary">
+      <p>远端任务：{stateLabel}{progress.taskId ? <> · <code>{progress.taskId}</code></> : null}</p>
+      {message !== undefined && <button type="button" className="activity-event-details-button" onClick={() => onOpen("远端任务消息", message)}>查看任务消息</button>}
+      {artifact !== undefined && <button type="button" className="activity-event-details-button" onClick={() => onOpen("任务产物", artifact)}>查看任务产物</button>}
+      {!message && !artifact && <button type="button" className="activity-event-details-button" onClick={() => onOpen("远端任务详情", item.output)}>查看任务详情</button>}
+    </div>;
   }
   const details: Array<[string, unknown]> = [];
   const output = item.output as Record<string, unknown> | null | undefined;

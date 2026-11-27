@@ -1348,6 +1348,10 @@ footer > span:first-child {
 .activity-event-details section b { display: block; margin-bottom: 4px; color: #8693a1; font-size: 10px; font-weight: 650; }
 .activity-event-details pre { max-height: 220px; margin: 0; overflow: auto; padding: 9px 10px; border: 1px solid #edf1f4; border-radius: 7px; background: #f8fafc; color: #4b5c70; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .activity-event-details-button { margin-top: 8px; padding: 0; border: 0; background: transparent; color: #607b91; font: inherit; font-size: 10px; cursor: pointer; }
+.activity-a2a-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 7px; color: #718196; font-size: 10px; }
+.activity-a2a-summary p { margin: 0; }
+.activity-a2a-summary code { color: #607186; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.activity-a2a-summary .activity-event-details-button { margin-top: 0; }
 .activity-detail-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 30, 43, .48); }
 .activity-detail-dialog { width: min(720px, 100%); max-height: min(80vh, 720px); overflow: hidden; border: 1px solid #e5ebf1; border-radius: 14px; background: white; box-shadow: 0 20px 60px rgba(12, 27, 42, .24); }
 .activity-detail-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #edf1f5; }

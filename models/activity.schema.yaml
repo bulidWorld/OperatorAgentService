@@ -24,7 +24,29 @@ properties:
         - $ref: '#/$defs/reasoning'
         - $ref: '#/$defs/modelSummary'
         - $ref: '#/$defs/toolExecution'
+        - $ref: '#/$defs/a2aTaskActivity'
 $defs:
+  a2aTaskState:
+    oneOf:
+      - type: string
+        enum:
+          - TASK_STATE_UNSPECIFIED
+          - TASK_STATE_SUBMITTED
+          - TASK_STATE_WORKING
+          - TASK_STATE_COMPLETED
+          - TASK_STATE_FAILED
+          - TASK_STATE_CANCELED
+          - TASK_STATE_INPUT_REQUIRED
+          - TASK_STATE_REJECTED
+          - TASK_STATE_AUTH_REQUIRED
+      - type: integer
+        enum: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    description: >-
+      A2A 远端任务状态及协议数值：TASK_STATE_UNSPECIFIED=0（未知，任务状态未指定或无法确定）；
+      TASK_STATE_SUBMITTED=1（进行中，任务已提交并被接收）；TASK_STATE_WORKING=2（进行中，Agent 正在执行任务）；
+      TASK_STATE_COMPLETED=3（终态，任务成功完成）；TASK_STATE_FAILED=4（终态，任务执行失败）；
+      TASK_STATE_CANCELED=5（终态，任务已取消）；TASK_STATE_INPUT_REQUIRED=6（中断态，等待用户补充信息或确认）；
+      TASK_STATE_REJECTED=7（终态，Agent 拒绝执行任务）；TASK_STATE_AUTH_REQUIRED=8（中断态，等待身份认证或授权）。
   timestamp:
     type: string
     format: date-time
@@ -36,11 +58,11 @@ $defs:
       - type: 'null'
   status:
     type: string
-    enum: [queued, running, awaiting_approval, completed, failed, cancelled]
+    enum: [queued, running, awaiting_approval, awaiting_input, awaiting_auth, completed, failed, cancelled, rejected]
     description: >-
       运行或活动事件的生命周期状态。queued 表示等待执行，running 表示执行中，
-      awaiting_approval 表示等待人工审批，completed 表示成功完成，failed 表示执行失败，
-      cancelled 表示执行被取消。
+      awaiting_approval 表示等待人工审批，awaiting_input 和 awaiting_auth 表示 A2A 任务等待输入或授权，
+      completed 表示成功完成，failed 表示执行失败，cancelled 表示执行被取消，rejected 表示远端拒绝执行。
   run:
     type: object
     description: 一次 agent 执行及其所属 thread 的状态和时间信息。
@@ -152,6 +174,174 @@ $defs:
               required: [status]
             then:
               required: [request_id]
+  a2aTaskActivity:
+    description: >-
+      A2A 远端任务活动。首次状态通过快照呈现；后续状态或进度变化通过 AG-UI ActivityDeltaEvent
+      发送 RFC 6902 patch，更新该活动条目。output 保存 A2A_PROGRESS_EVENT 的数据，包含任务状态和触发本次更新的原始 A2A 事件。
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        required: [type, correlation]
+        properties:
+          type:
+            const: a2a_task
+            description: 固定为 a2a_task，表示远端 A2A 任务。
+          correlation:
+            type: object
+            additionalProperties: false
+            required: [taskId]
+            properties:
+              taskId:
+                type: string
+                description: 对应 A2A 远端任务的标识；尚未分配时为空字符串。
+          status:
+            type: string
+            enum: [running, awaiting_input, awaiting_auth, completed, failed, cancelled, rejected]
+            description: 映射后的活动状态，供前端统一展示生命周期。
+          output:
+            $ref: '#/$defs/a2aProgress'
+  a2aProgress:
+    type: object
+    description: A2A_PROGRESS_EVENT 数据；每次状态或产物变化时随 ActivityDeltaEvent 更新。
+    additionalProperties: true
+    required: [taskId, status, update]
+    properties:
+      taskId:
+        type: string
+        description: A2A 任务标识。
+      status:
+        $ref: '#/$defs/a2aTaskStatus'
+      update:
+        description: 触发本次进度事件的 A2A 响应，可为任务快照、状态更新或产物更新。
+        oneOf:
+          - $ref: '#/$defs/a2aTaskEvent'
+          - $ref: '#/$defs/a2aStatusUpdateEvent'
+          - $ref: '#/$defs/a2aArtifactUpdateEvent'
+          - $ref: '#/$defs/a2aMessageEvent'
+  a2aTaskStatus:
+    type: object
+    description: A2A TaskStatus，包含当前状态以及可选的状态说明消息。
+    additionalProperties: true
+    required: [state]
+    properties:
+      state:
+        $ref: '#/$defs/a2aTaskState'
+      message:
+        $ref: '#/$defs/a2aMessage'
+      timestamp:
+        $ref: '#/$defs/timestamp'
+  a2aMessage:
+    type: object
+    description: A2A 消息；前端可展示 role 和 parts 中的文本、文件或结构化数据。
+    additionalProperties: true
+    properties:
+      messageId:
+        type: string
+      role:
+        oneOf:
+          - type: string
+            enum: [ROLE_UNSPECIFIED, ROLE_USER, ROLE_AGENT]
+          - type: integer
+      parts:
+        type: array
+        items:
+          $ref: '#/$defs/a2aPart'
+  a2aPart:
+    type: object
+    description: A2A 内容片段；根据字段展示文本、结构化数据或文件链接。
+    additionalProperties: true
+    properties:
+      text:
+        type: string
+      data: {}
+      url:
+        type: string
+        format: uri
+      raw:
+        type: string
+        contentEncoding: base64
+      filename:
+        type: string
+      mediaType:
+        type: string
+  a2aArtifact:
+    type: object
+    description: A2A 任务产物及其内容片段。
+    additionalProperties: true
+    properties:
+      artifactId:
+        type: string
+      name:
+        type: string
+      description:
+        type: string
+      parts:
+        type: array
+        items:
+          $ref: '#/$defs/a2aPart'
+  a2aTaskSnapshot:
+    type: object
+    description: A2A 完整任务快照。
+    additionalProperties: true
+    properties:
+      id:
+        type: string
+      contextId:
+        type: string
+      status:
+        $ref: '#/$defs/a2aTaskStatus'
+      history:
+        type: array
+        items:
+          $ref: '#/$defs/a2aMessage'
+      artifacts:
+        type: array
+        items:
+          $ref: '#/$defs/a2aArtifact'
+  a2aTaskEvent:
+    type: object
+    additionalProperties: true
+    required: [task]
+    properties:
+      task:
+        $ref: '#/$defs/a2aTaskSnapshot'
+  a2aMessageEvent:
+    type: object
+    additionalProperties: true
+    required: [message]
+    properties:
+      message:
+        $ref: '#/$defs/a2aMessage'
+  a2aStatusUpdateEvent:
+    type: object
+    description: A2A statusUpdate 流事件。
+    additionalProperties: true
+    properties:
+      taskId:
+        type: string
+      contextId:
+        type: string
+      status:
+        $ref: '#/$defs/a2aTaskStatus'
+      metadata:
+        type: object
+  a2aArtifactUpdateEvent:
+    type: object
+    description: A2A artifactUpdate 流事件；append 为 true 时内容追加到同一 artifactId 的既有产物。
+    additionalProperties: true
+    properties:
+      taskId:
+        type: string
+      contextId:
+        type: string
+      artifact:
+        $ref: '#/$defs/a2aArtifact'
+      append:
+        type: boolean
+      lastChunk:
+        type: boolean
+      metadata:
+        type: object
   reasoning:
     description: assistant 或 assess_pod 步骤的 Thinking 活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
     allOf:
