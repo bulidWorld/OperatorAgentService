@@ -3,6 +3,11 @@ import test from "node:test";
 import { buildFaultAgentTurns } from "./fault-agent-turns";
 import type { AgentRunActivity } from "./activity";
 
+/**
+ * 执行 activity 相关处理。
+ * @param runId runId 参数。
+ * @returns 执行结果。
+ */
 function activity(runId: string): AgentRunActivity {
   return { schemaVersion: 1, run: { runId, threadId: "thread", status: "completed", startedAt: "2026-11-18T08:00:00Z", updatedAt: "2026-11-18T08:01:00Z", finishedAt: "2026-11-18T08:01:00Z", error: null }, events: [] };
 }

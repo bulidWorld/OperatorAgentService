@@ -78,6 +78,10 @@ const deltas: ActivityDeltaEvent[] = [
   },
 ];
 
+/**
+ * 验证真实快照及增量事件可以持续同步且不会显示不可用提示。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("the real snapshot and activity deltas stay synchronized without the unavailable notice", () => {
   let state = reduceActivitySnapshot(null, snapshot);
   assert.equal(state.sync, "ready");
@@ -94,6 +98,10 @@ test("the real snapshot and activity deltas stay synchronized without the unavai
   assert.equal(activity.content.events[0].status, "failed");
 });
 
+/**
+ * 验证非替换快照不会覆盖活动内容或修复失步状态。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("non-replacing snapshots preserve the activity and its out-of-sync state", () => {
   const content = structuredClone(snapshot.content);
   content.events.push({
@@ -123,6 +131,10 @@ test("non-replacing snapshots preserve the activity and its out-of-sync state", 
   assert.equal(state.sync, "ready");
 });
 
+/**
+ * 验证推理事件可通过校验并保留其摘要展示数据。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("accepts reasoning events and keeps only their summary available for display", () => {
   const content = structuredClone(snapshot.content);
   content.events.push({
@@ -145,6 +157,10 @@ test("accepts reasoning events and keeps only their summary available for displa
   assert.equal(parsed.events[0].type, "reasoning");
 });
 
+/**
+ * 验证审批事件在请求编号为空或存在时均可正确校验。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("accepts approval events with or without a request id", () => {
   const content = structuredClone(snapshot.content);
   content.events.push({
@@ -169,6 +185,40 @@ test("accepts approval events with or without a request id", () => {
   assert.equal(parseAgentRunActivity(content), null);
 });
 
+/**
+ * 验证待审批工具活动必须携带有效 request_id，普通工具活动可省略。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
+test("requires request_id only for tool executions awaiting approval", () => {
+  const content = structuredClone(snapshot.content);
+  const event: Record<string, unknown> = {
+    id: "tool_execution-1",
+    sequence: 1,
+    type: "tool_execution",
+    title: "restart_pod",
+    status: "awaiting_approval",
+    startedAt: "2026-11-19T01:18:30.671Z",
+    updatedAt: "2026-11-19T01:18:30.671Z",
+    finishedAt: null,
+    input: {},
+    output: null,
+    error: null,
+    tool: { name: "restart_pod" },
+    correlation: { toolCallId: "call-1" },
+  };
+  content.events.push(event);
+  assert.equal(parseAgentRunActivity(content), null);
+
+  event.request_id = "request-1";
+  assert.equal(parseAgentRunActivity(content)?.events[0].request_id, "request-1");
+  event.request_id = "";
+  assert.equal(parseAgentRunActivity(content), null);
+});
+
+/**
+ * 验证 v2 模式选择完成后，后续步骤仍能保持同步。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("v2 mode selection stays synchronized through completion and the next step", () => {
   const content = { ...structuredClone(snapshot.content), schemaVersion: 2 };
   const first = deltas[0].patch[0];
@@ -193,13 +243,51 @@ test("v2 mode selection stays synchronized through completion and the next step"
   assert.equal(events?.[1].type, "reasoning");
 });
 
+/**
+ * 验证未知事件类型不展示，且补丁仍按原始数组索引更新。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
+test("unknown activity types are hidden without shifting JSON Patch indices", () => {
+  const unknown = { type: "future_step", status: "running" };
+  const first = deltas[0].patch[0];
+  assert.ok(first.op === "add");
+  const step = { ...first.value, sequence: 2, type: "reasoning", title: "Thinking" };
+  for (const schemaVersion of [1, 2]) {
+    const content = { ...snapshot.content, schemaVersion, events: [unknown] };
+    let state = reduceActivitySnapshot(null, { ...snapshot, content });
+    assert.equal(state.sync, "ready");
+    assert.deepEqual(parseAgentRunActivity(state.activity?.content)?.events, []);
+    state = reduceActivityDelta(state.activity, {
+      ...deltas[0],
+      patch: [
+        { op: "add", path: "/events/-", value: step },
+        { op: "add", path: "/events/-", value: { type: "another_future_step" } },
+        { op: "replace", path: "/events/0/status", value: "completed" },
+        { op: "replace", path: "/events/1/status", value: "failed" },
+      ],
+    }, state.sync);
+    assert.equal(state.sync, "ready");
+    assert.equal(state.activity?.content.events[0].status, "completed");
+    assert.deepEqual(parseAgentRunActivity(state.activity?.content)?.events, [{ ...step, status: "failed" }]);
+  }
+});
+
+/**
+ * 验证 v2 步骤允许空输出并按顺序应用消息增量。
+ * @returns 无返回值；断言失败时由测试框架报告错误。
+ */
 test("v2 step activities accept null output and apply ordered message deltas", () => {
   const content = { ...structuredClone(snapshot.content), schemaVersion: 2 };
   let state = reduceActivitySnapshot(null, { ...snapshot, content });
   const legacyStep = deltas[0].patch[0];
   assert.ok(legacyStep.op === "add");
   const step = { ...legacyStep.value, type: "reasoning", title: "Thinking" };
-  const apply = (patch: ActivityDeltaEvent["patch"]) => {
+    /**
+ * 执行 apply 相关处理。
+ * @param patch patch 参数。
+ * @returns 执行结果。
+ */
+    const apply = (patch: ActivityDeltaEvent["patch"]) => {
     state = reduceActivityDelta(state.activity, { ...deltas[0], patch }, state.sync);
     assert.equal(state.sync, "ready");
   };
@@ -228,5 +316,5 @@ test("v2 step activities accept null output and apply ordered message deltas", (
   }, state.sync);
   assert.equal(invalid.sync, "needs_snapshot");
   assert.equal(invalid.activity, state.activity);
-  assert.equal(parseAgentRunActivity({ ...content, events: [legacyStep.value] }), null);
+  assert.deepEqual(parseAgentRunActivity({ ...content, events: [legacyStep.value] })?.events, []);
 });

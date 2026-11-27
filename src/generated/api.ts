@@ -81,6 +81,12 @@ export function getAlerts(refresh = false, cursor?: string, signal?: AbortSignal
   return getJson<AlertsResponse>(`/api/alerts${params.size ? `?${params}` : ""}`, signal);
 }
 
+/**
+ * 按编号或筛选条件清除告警。
+ * @param payload 告警编号数组或待清除告警的筛选条件。
+ * @returns 已标记为已解决的告警数量。
+ * @throws 请求失败或服务端返回错误时抛出错误。
+ */
 export async function clearAlerts(payload: { ids: number[] } | { filters: { source?: string; alertType?: string; severity?: string; from?: string; to?: string } }): Promise<{ cleared: number }> {
   const filters = "filters" in payload ? payload.filters : undefined;
   const body = filters ? { filters: {

@@ -4,7 +4,16 @@ import { beginHttpLog } from "./logger";
 
 const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
-/** Read recent logs for a specific Kubernetes container using the pod's ServiceAccount. */
+/**
+ * 使用 Pod 的 ServiceAccount 凭证读取指定容器的近期日志。
+ * @param input.namespace Kubernetes 命名空间。
+ * @param input.pod Pod 名称。
+ * @param input.container 可选的容器名称。
+ * @param input.sinceMinutes 查询最近多少分钟的日志。
+ * @param input.tailLines 返回的最大日志行数。
+ * @returns 命名空间、Pod、容器、日志文本及是否发生截断。
+ * @throws 参数无效、凭证缺失、请求超时或 Kubernetes API 返回错误时抛出异常。
+ */
 export async function getPodLogs(input: {
   namespace: string;
   pod: string;
@@ -81,7 +90,11 @@ export async function getPodLogs(input: {
   });
 }
 
-/** Extract a readable Kubernetes API error without echoing arbitrary response bodies. */
+/**
+ * 从 Kubernetes API 响应中提取可读错误信息，避免直接回显任意响应体。
+ * @param body API 返回的响应文本。
+ * @returns 转换后的错误说明；无法解析时返回 undefined。
+ */
 function parseKubernetesError(body: string) {
   try {
     const parsed: unknown = JSON.parse(body);

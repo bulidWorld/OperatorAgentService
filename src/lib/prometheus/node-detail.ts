@@ -11,6 +11,11 @@ import { businessLog, errorLog, withLogContext } from "../logger";
  * @param instance Prometheus instance 标签的完整值。
  * @returns 对 instance 标签进行 JSON 转义的选择器。
  */
+/**
+ * 将 Node instance 转换为 PromQL 可用的标签选择器。
+ * @param instance Node 名称或地址。
+ * @returns 转义后的 PromQL instance 标签选择器。
+ */
 export function nodeSelector(instance: string) {
   return `instance=${JSON.stringify(instance)}`;
 }
@@ -18,6 +23,12 @@ export function nodeSelector(instance: string) {
  * @param instance Prometheus instance 标签值。
  * @param windowSeconds rate 函数计算窗口，单位为秒，默认 300 秒。
  * @returns 指标名称到 PromQL 表达式的映射。
+ */
+/**
+ * 为 Node 详情页生成各指标的 PromQL 查询表达式。
+ * @param instance Node 名称或地址。
+ * @param windowSeconds rate 查询窗口，单位为秒。
+ * @returns 按指标键组织的 PromQL 表达式。
  */
 export function nodeDetailQueries(instance: string, windowSeconds = 300) {
   const selector = nodeSelector(instance);
@@ -80,6 +91,14 @@ export type NodeDetail = {
  * @param selections 各图表组独立的时间范围、间隔或自定义起止时间。
  * @returns 节点详情、分组范围、采样间隔和查询警告。
  * @throws 时间范围无效或所有指标查询均失败时抛出错误。
+ */
+/**
+ * 并行查询指定 Node 的指标并整理为详情页结构。
+ * @param instance Node 名称或地址。
+ * @param start 查询起始时间，Unix 秒。
+ * @param end 查询结束时间，Unix 秒。
+ * @param step 查询采样间隔，单位为秒。
+ * @returns Node 指标详情、时间范围及部分查询失败的警告。
  */
 export async function getNodeDetail(
   instance: string,
@@ -196,6 +215,11 @@ export async function getNodeDetail(
 /** 从 Prometheus 样本列表中读取第一个有效的标量值。
  * @param samples Prometheus 即时查询返回的样本列表。
  * @returns 数值结果；样本缺失或数值无效时返回 null。
+ */
+/**
+ * 从即时查询样本中解析首个有限数值。
+ * @param samples Prometheus 即时查询样本。
+ * @returns 首个有效数值；没有有效样本时返回 null。
  */
 export function scalar(samples: Sample[]): number | null {
   const value = samples[0]?.value?.[1];

@@ -6,6 +6,12 @@ const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 const API_LIMIT = 250;
 type KubeObject = Record<string, any>;
 
+/**
+ * 从 Kubernetes API 读取一页指定资源并限制响应体大小。
+ * @param path API 资源路径及可选查询参数。
+ * @returns 资源对象列表及是否因分页或大小上限而截断。
+ * @throws 集群配置缺失、API 请求失败、超时或响应 JSON 无效时抛出错误。
+ */
 async function listResource(path: string) {
   const host = process.env.KUBERNETES_SERVICE_HOST;
   if (!host) throw new Error("未检测到集群内 Kubernetes API Server 地址");
@@ -60,15 +66,33 @@ async function listResource(path: string) {
   });
 }
 
+/**
+ * 根据可选命名空间生成资源集合路径。
+ * @param base Kubernetes API 的资源集合基础路径。
+ * @param namespace 可选的命名空间名称。
+ * @returns 全局或命名空间范围的资源路径。
+ */
 function collection(base: string, namespace?: string) {
   return namespace ? `${base}/namespaces/${encodeURIComponent(namespace)}` : base;
 }
 
+/**
+ * 判断一组标签是否满足 Kubernetes Service 选择器。
+ * @param labels Pod 当前标签；未提供时视为空标签。
+ * @param selector Service 选择器；未提供时视为不匹配。
+ * @returns 选择器中的所有键值都匹配时返回 true。
+ */
 function selectedBy(labels: Record<string, string> | undefined, selector: Record<string, string> | undefined) {
   return Boolean(selector && Object.entries(selector).every(([key, value]) => labels?.[key] === value));
 }
 
-/** Summarize Kubernetes service routing, endpoint, policy, pod and node readiness data. */
+/**
+ * 汇总 Kubernetes Service 路由、端点、网络策略、Pod 和节点状态。
+ * @param input.namespace 可选的命名空间筛选条件。
+ * @param input.service 可选的 Service 名称筛选条件。
+ * @returns 网络配置快照、诊断信号、资源数量及截断标记。
+ * @throws 筛选值格式无效、凭证缺失或 Kubernetes API 请求失败时抛出错误。
+ */
 export async function queryKubernetesNetwork(input: { namespace?: string; service?: string }) {
   const namespace = input.namespace?.trim() || undefined;
   const serviceName = input.service?.trim() || undefined;

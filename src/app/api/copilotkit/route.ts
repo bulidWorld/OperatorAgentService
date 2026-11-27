@@ -11,6 +11,12 @@ export const runtime = "nodejs";
 let handler: ReturnType<typeof createCopilotHonoHandler> | undefined;
 
 class LoggedAgentFetch {
+  /**
+   * 记录转发日志并调用全局 fetch 请求远端 AG-UI Agent。
+   * @param url 远端 Agent 请求地址。
+   * @param requestInit fetch 请求选项。
+   * @returns 远端 Agent 的 HTTP 响应。
+   */
   fetch(url: string, requestInit: RequestInit): Promise<Response> {
     const target = new URL(url);
     // AG-UI's client materializes its local state on every run. The MTAP

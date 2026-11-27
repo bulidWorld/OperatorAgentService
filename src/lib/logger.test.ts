@@ -35,7 +35,12 @@ test("separate logs, stack traces, retention and outbound request results", asyn
       "test.access",
       async () => new Response(null, { status: 204 }),
     );
-    const records = (category: string) => readdirSync(directory)
+        /**
+ * 执行 records 相关处理。
+ * @param category category 参数。
+ * @returns 执行结果。
+ */
+        const records = (category: string) => readdirSync(directory)
       .filter(name => name.startsWith(`${category}-`))
       .flatMap(name => readFileSync(join(directory, name), "utf8").trim().split("\n").map(line => JSON.parse(line)));
     assert.equal(records("business")[0].event, "test.business");

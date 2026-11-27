@@ -28,6 +28,13 @@ export type PodGroup = keyof typeof POD_GROUPS;
  * @param windowSeconds rate 函数计算窗口，单位为秒，默认 300 秒。
  * @returns Pod 各项性能指标的 PromQL 表达式映射。
  */
+/**
+ * 为 Pod 详情页生成各项 PromQL 查询表达式。
+ * @param namespace Kubernetes 命名空间。
+ * @param pod Pod 名称。
+ * @param windowSeconds rate 查询窗口，单位为秒。
+ * @returns 按指标键组织的 PromQL 表达式。
+ */
 export function podDetailQueries(
   namespace: string,
   pod: string,
@@ -81,6 +88,13 @@ export type PodRestartEvent = { time: number; container: string };
  * @param end 查询窗口终点，Unix 秒。
  * @returns 按时间升序、按容器和时间去重后的重启事件。
  */
+/**
+ * 从容器重启计数序列中提取查询时间范围内的重启事件。
+ * @param restartSamples Pod 容器重启累计计数样本。
+ * @param start 查询起始时间，Unix 秒。
+ * @param end 查询结束时间，Unix 秒。
+ * @returns 按时间排序的重启事件列表。
+ */
 function extractRestartEvents(restartSamples: Sample[], start: number, end: number): PodRestartEvent[] {
   const events = new Map<string, PodRestartEvent>();
   for (const sample of restartSamples) {
@@ -109,6 +123,15 @@ function extractRestartEvents(restartSamples: Sample[], start: number, end: numb
  * @param selections 各指标分组的时间范围、间隔或自定义起止时间。
  * @returns Pod 指标、分组范围、更新时间和失败指标列表。
  * @throws Pod 名称或时间范围无效，或全部指标查询失败时抛出错误。
+ */
+/**
+ * 并行查询指定 Pod 的指标并整理为详情页数据。
+ * @param namespace Kubernetes 命名空间。
+ * @param pod Pod 名称。
+ * @param start 查询起始时间，Unix 秒。
+ * @param end 查询结束时间，Unix 秒。
+ * @param step 查询采样间隔，单位为秒。
+ * @returns Pod 指标详情、重启事件及部分查询失败的警告。
  */
 export async function getPodDetail(
   namespace: string,

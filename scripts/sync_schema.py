@@ -13,32 +13,25 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DIR = ROOT / "db"
 
 def qident(value: str) -> str:
-    """Quote a PostgreSQL identifier by escaping embedded double quotes.
-
-    Args:
-        value: Unquoted identifier text.
-
-    Returns:
-        The identifier wrapped in double quotes.
     """
+处理qident相关逻辑。
+
+参数：
+    value：value 参数。
+
+返回：函数执行结果。
+"""
     return '"' + value.replace('"', '""') + '"'
 
 def load_statements(directory: Path):
-    """Yield migration IDs and SQL generated from XML schema files.
-
-    Args:
-        directory: Directory containing database XML definitions.
-
-    Yields:
-        Pairs of stable migration IDs and executable SQL statements. Tables,
-        indexes, foreign keys, and custom statements are emitted in dependency
-        order.
-
-    Raises:
-        OSError: If an XML file cannot be read.
-        ValueError: If the XML document has an invalid structure.
-        ElementTree.ParseError: If an XML file is malformed.
     """
+处理load_statements相关逻辑。
+
+参数：
+    directory：directory 参数。
+
+返回：函数执行结果。
+"""
     foreign_keys = []
     raw_statements = []
     for path in sorted(directory.glob("*.xml")):
@@ -46,24 +39,24 @@ def load_statements(directory: Path):
         if root.tag != "database":
             raise ValueError(f"{path}: root element must be <database>")
         def q(name):
-            """Quote a schema identifier from the current XML document.
-
-            Args:
-                name: Identifier text from an XML attribute.
-
-            Returns:
-                A safely quoted PostgreSQL identifier.
             """
+处理q相关逻辑。
+
+参数：
+    name：name 参数。
+
+返回：函数执行结果。
+"""
             return qident(name)
         def cols(value):
-            """Quote a comma-separated list of column names.
-
-            Args:
-                value: Comma-separated column names from an XML attribute.
-
-            Returns:
-                A comma-separated list of quoted PostgreSQL identifiers.
             """
+处理cols相关逻辑。
+
+参数：
+    value：value 参数。
+
+返回：函数执行结果。
+"""
             return ', '.join(q(x.strip().strip('"')) for x in value.split(','))
         for ext in root.findall("./extensions/extension"):
             name = ext.attrib["name"]
@@ -130,18 +123,14 @@ def load_statements(directory: Path):
     yield from raw_statements
 
 def load_table_definitions(directory: Path):
-    """Load the XML-defined columns for every managed table.
-
-    Args:
-        directory: Directory containing database XML definitions.
-
-    Returns:
-        A mapping from table names to mappings of column names and XML attrs.
-
-    Raises:
-        OSError: If an XML file cannot be read.
-        ElementTree.ParseError: If an XML file is malformed.
     """
+处理load_table_definitions相关逻辑。
+
+参数：
+    directory：directory 参数。
+
+返回：函数执行结果。
+"""
     result = {}
     for path in sorted(directory.glob("*.xml")):
         root = ET.parse(path).getroot()
@@ -153,27 +142,22 @@ def load_table_definitions(directory: Path):
     return result
 
 def quote_literal(value: str) -> str:
-    """Escape a string and wrap it as a PostgreSQL SQL literal.
-
-    Args:
-        value: Literal text to escape.
-
-    Returns:
-        The escaped string enclosed in single quotes.
     """
+处理quote_literal相关逻辑。
+
+参数：
+    value：value 参数。
+
+返回：函数执行结果。
+"""
     return "'" + value.replace("'", "''") + "'"
 
 def connect():
-    """Connect to the configured PostgreSQL database.
-
-    Returns:
-        A psycopg or psycopg2 connection with transactions enabled.
-
-    Raises:
-        ValueError: If a required database environment variable is missing.
-        SystemExit: If neither supported PostgreSQL driver is installed.
-        Exception: Propagates connection errors from the selected driver.
     """
+处理connect相关逻辑。
+
+返回：函数执行结果。
+"""
     names = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
     missing = [name for name in names if name not in os.environ]
     if missing:
@@ -196,15 +180,11 @@ def connect():
             raise SystemExit("Install psycopg (pip install 'psycopg[binary]') or psycopg2-binary") from exc
 
 def main():
-    """Generate and apply pending schema migrations from the command line.
-
-    Command-line options select the XML directory, enable dry-run output, or
-    write pending SQL to a file. Database changes are committed per migration.
-
-    Returns:
-        None. Exits with a nonzero status when argument processing or migration
-        execution fails.
     """
+处理main相关逻辑。
+
+返回：函数执行结果。
+"""
     ap = argparse.ArgumentParser(description="Generate and execute SQL from XML schema definitions")
     ap.add_argument("--dir", type=Path, default=DEFAULT_DIR)
     ap.add_argument("--dry-run", action="store_true", help="print pending SQL without executing")

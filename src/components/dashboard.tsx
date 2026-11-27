@@ -120,7 +120,7 @@ export default function Dashboard({
           setData((current) => current ? { ...current, resources: body.resources, updatedAt: new Date().toISOString() } : current);
         }
       } catch {
-        // Keep the last known status until the next successful poll.
+        // 本次轮询失败时保留最近一次成功获取的状态。
       } finally {
         pending = false;
       }

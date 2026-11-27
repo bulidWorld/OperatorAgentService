@@ -77,24 +77,43 @@ export default function AlertsPage() {
     );
     return () => clearInterval(timer);
   }, [load, pageCursors, pageIndex]);
+  /** 监听告警详情弹窗的 Escape 键并关闭弹窗。
+   * @param event 浏览器键盘事件。
+   * @returns 按下 Escape 时清除当前详情告警状态。
+   */
   useEffect(() => {
     if (!detailAlert) return;
-    const onKeyDown = (event: KeyboardEvent) => {
+        /**
+ * 执行 onKeyDown 相关处理。
+ * @param event event 参数。
+ * @returns 执行结果。
+ */
+        const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setDetailAlert(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [detailAlert]);
+  /** 应用编辑中的筛选条件并重置分页位置。
+   * @returns 无返回值；更新筛选条件并从第一页重新查询。
+   */
   const applyFilters = () => {
     setFilters(draft);
     setPageCursors([]);
     setPageIndex(0);
   };
+  /** 更改每页告警数并重置分页位置。
+   * @param size 新的分页大小。
+   * @returns 无返回值；更新分页大小和游标状态。
+   */
   const changeSize = (size: number) => {
     setPageSize(size);
     setPageCursors([]);
     setPageIndex(0);
   };
+  /** 确认后将当前选中的告警标记为已解决。
+   * @returns 无返回值；异步更新数据库并刷新列表或显示错误。
+   */
   const clearSelection = async () => {
     if (
       !selectedIds.length ||
@@ -113,6 +132,9 @@ export default function AlertsPage() {
       setClearing(false);
     }
   };
+  /** 确认后将当前筛选条件匹配的全部告警标记为已解决。
+   * @returns 无返回值；异步更新数据库并重置分页或显示错误。
+   */
   const clearFiltered = async () => {
     if (
       !window.confirm(

@@ -55,6 +55,11 @@ const schemaAjv = new Ajv2020({ allErrors: true, strict: false, validateFormats:
 addFormats(schemaAjv);
 let validateMtapTool: ReturnType<typeof schemaAjv.compile> | undefined;
 
+/**
+ * 执行 validApprovalInputs 相关处理。
+ * @param inputs inputs 参数。
+ * @returns 执行结果。
+ */
 function validApprovalInputs(inputs: unknown): inputs is Array<Record<string, unknown>> {
   if (!Array.isArray(inputs)) return false;
   const keys = new Set<string>();

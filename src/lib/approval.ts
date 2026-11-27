@@ -40,10 +40,19 @@ export type ApprovalDecision = {
   comment?: string;
 };
 
+/**
+ * 判断输入是否为非数组对象。
+ * @param value 待检查的值。
+ * @returns 输入为对象且不是数组时返回 true。
+ */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-/** Parse only the supported v1 request shape; malformed requests cannot be approved. */
+/**
+ * 仅解析当前支持的 v1 审批请求结构，拒绝不完整或格式错误的请求。
+ * @param value 待解析的审批请求。
+ * @returns 请求结构有效时返回解析结果，否则返回 null。
+ */
 export function parseApprovalRequest(value: unknown): ApprovalRequest | null {
   if (!isRecord(value) || value.type !== "approval_request" || value.schema_version !== 1) return null;
   if (
@@ -84,6 +93,12 @@ export function parseApprovalRequest(value: unknown): ApprovalRequest | null {
   return value as unknown as ApprovalRequest;
 }
 
+/**
+ * 校验答案是否完整、类型正确且值属于请求声明的选项。
+ * @param request 已解析的审批请求定义。
+ * @param answers 用户提交的字段答案。
+ * @returns 校验通过时返回 null，否则返回中文错误说明。
+ */
 export function validateApprovalAnswers(
   request: ApprovalRequest,
   answers: Record<string, unknown>,
@@ -110,6 +125,13 @@ export function validateApprovalAnswers(
   return null;
 }
 
+/**
+ * 校验批准或拒绝决定及其附带答案。
+ * @param request 已解析的审批请求定义。
+ * @param status 用户选择的批准或拒绝状态。
+ * @param answers 用户提交的字段答案。
+ * @returns 决定有效时返回 null，否则返回中文错误说明。
+ */
 export function validateApprovalDecision(
   request: ApprovalRequest,
   status: "approved" | "rejected",

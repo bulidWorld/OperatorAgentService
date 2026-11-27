@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { errorLog, httpLog } from "../logger";
-/** One exported function per Prometheus HTTP endpoint. Server-side only. */
+/** 每个 Prometheus HTTP API 端点对应一个导出函数，仅供服务端使用。 */
 export type Sample = {
   metric: Record<string, string>;
   value?: [number, string];
@@ -36,7 +36,7 @@ async function request<T>(
   const requestId = randomUUID();
   const calledAt = new Date().toISOString();
   const started = performance.now();
-  // Only log our explicit endpoint parameters; never log credentials or headers.
+  // 仅记录调用方提供的端点参数，不记录凭证或请求头。
   const endpoint = new URL(url);
   endpoint.username = "";
   endpoint.password = "";

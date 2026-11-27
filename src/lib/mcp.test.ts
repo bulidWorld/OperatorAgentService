@@ -49,8 +49,16 @@ test("query_pod_details follows its advertised success and not-found contracts",
       assert.equal(options.path, podPath);
       const request = new EventEmitter();
       return Object.assign(request, {
-        setTimeout() {},
-        end() {
+                /**
+ * 执行 setTimeout 相关处理。
+ * @returns 执行结果。
+ */
+                setTimeout() {},
+                /**
+ * 执行 end 相关处理。
+ * @returns 执行结果。
+ */
+                end() {
           const response = Object.assign(new EventEmitter(), { statusCode: upstreamStatus });
           onResponse(response);
           const body = upstreamStatus === 404 ? { message: "Pod not found" } : podDetails;
@@ -63,7 +71,13 @@ test("query_pod_details follows its advertised success and not-found contracts",
   syncBuiltinESMExports();
   const { handleMcpRequest } = await import("./mcp/server");
 
-  async function send(method: string, params?: Record<string, unknown>) {
+    /**
+ * 执行 send 相关处理。
+ * @param method method 参数。
+ * @param params params 参数。
+ * @returns 执行结果。
+ */
+    async function send(method: string, params?: Record<string, unknown>) {
     const response = await handleMcpRequest(new Request("http://localhost/api/v1/mcp", {
       method: "POST",
       headers: {

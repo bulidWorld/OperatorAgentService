@@ -278,9 +278,11 @@ async function upsertPage(events: KubernetesEvent[]): Promise<number> {
  */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Synchronize the cluster's complete core/v1 Event list and upsert by source plus Event UID.
- * @param waitForLock Manual refreshes wait for the active synchronizer; scheduled runs skip if another instance owns the lock.
- * @returns Number of Event objects read from the API Server.
+/**
+ * 同步集群全部 core/v1 Event，并按来源和 Event UID 执行插入或更新。
+ * @param waitForLock 手动刷新会等待当前同步任务；定时任务遇到锁占用时跳过。
+ * @returns 从 API Server 读取的 Event 数量；未获得同步锁时返回 null。
+ * @throws API 或数据库同步失败时记录日志并向调用方抛出错误。
  */
 export async function syncKubernetesEvents(
   waitForLock = false,
@@ -302,6 +304,7 @@ export async function syncKubernetesEvents(
   let eventsUpserted = 0;
   let pages = 0;
   while (true) {
+    // 使用数据库 advisory lock 保证多实例间只由一个同步任务写入完整快照。
     let client: PoolClient | undefined;
     let locked = false;
     let released = false;
@@ -346,6 +349,7 @@ export async function syncKubernetesEvents(
         await sleep(250);
         continue;
       }
+      // 分页 upsert 完成后，将超过保留期限且未再次出现的 Kubernetes 事件标记为已解决。
       await fetchEventPages(async (events) => {
         pages += 1;
         eventsRead += events.length;
@@ -597,6 +601,13 @@ export type StoredAlertFilters = {
   objectName?: string;
 };
 
+/**
+ * 执行 getStoredAlerts 相关处理。
+ * @param limit limit 参数。
+ * @param cursorToken cursorToken 参数。
+ * @param filters filters 参数。
+ * @returns 执行结果。
+ */
 export async function getStoredAlerts(
   limit = 50,
   cursorToken?: string,

@@ -214,6 +214,14 @@ export function mergeResources(scope: Scope, metrics: Sample[][]): Resource[] {
  * @throws 上游 Prometheus 查询失败时记录错误并继续向调用方抛出。
  */
 const dashboardCache = new Map<string, { expires: number; value: Promise<Dashboard> }>();
+/**
+ * 执行 getDashboard 相关处理。
+ * @param scope scope 参数。
+ * @param minutes minutes 参数。
+ * @param stepSelection stepSelection 参数。
+ * @param force force 参数。
+ * @returns 执行结果。
+ */
 export function getDashboard(scope: Scope, minutes: number, stepSelection: StepSelection = "auto", force = false): Promise<Dashboard> {
   const key = `${scope}:${minutes}:${stepSelection}`;
   const cached = dashboardCache.get(key);
@@ -223,6 +231,14 @@ export function getDashboard(scope: Scope, minutes: number, stepSelection: StepS
   void value.catch(() => { if (dashboardCache.get(key)?.value === value) dashboardCache.delete(key); });
   return value;
 }
+/**
+ * 在日志上下文中加载监控首页数据，并记录查询结果和耗时。
+ * @param scope 页面资源类型，支持 nodes 或 pods。
+ * @param minutes 监控时间范围，单位为分钟。
+ * @param stepSelection CPU 趋势采样间隔选择。
+ * @returns 监控首页聚合数据。
+ * @throws 上游查询失败时记录日志并向调用方抛出错误。
+ */
 function loadLoggedDashboard(scope: Scope, minutes: number, stepSelection: StepSelection): Promise<Dashboard> {
   return withLogContext({ feature: scope === "nodes" ? "Node节点资源监控" : "Pod工作负载监控", scope, minutes, stepSelection }, async () => {
     const started = performance.now();
@@ -246,6 +262,13 @@ function loadLoggedDashboard(scope: Scope, minutes: number, stepSelection: StepS
  * @param minutes 监控时间范围，单位为分钟。
  * @param stepSelection CPU 趋势采样间隔选择。
  * @returns 首页聚合数据。
+ */
+/**
+ * 并行查询资源指标、告警和 CPU 趋势并组装面板数据。
+ * @param scope 页面资源类型，支持 nodes 或 pods。
+ * @param minutes 监控时间范围，单位为分钟。
+ * @param stepSelection CPU 趋势采样间隔选择。
+ * @returns 监控首页所需的数据对象。
  */
 async function loadDashboard(scope: Scope, minutes: number, stepSelection: StepSelection): Promise<Dashboard> {
   if (process.env.DEMO_MODE === "true") return demoDashboard(scope, minutes, stepSelection);
@@ -306,6 +329,13 @@ async function loadDashboard(scope: Scope, minutes: number, stepSelection: StepS
  * @param minutes 图表时间范围，单位为分钟。
  * @param stepSelection 采样间隔选择。
  * @returns 标记为 demo 模式的静态示例数据。
+ */
+/**
+ * 生成演示模式使用的监控首页数据。
+ * @param scope 页面资源类型，支持 nodes 或 pods。
+ * @param minutes 趋势时间范围，单位为分钟。
+ * @param stepSelection CPU 趋势采样间隔选择。
+ * @returns 使用演示数据填充的监控首页对象。
  */
 function demoDashboard(scope: Scope, minutes: number, stepSelection: StepSelection): Dashboard {
   const resources: Resource[] = Array.from(

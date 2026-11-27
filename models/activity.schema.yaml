@@ -140,6 +140,18 @@ $defs:
                 type: string
                 minLength: 1
                 description: 对应 TOOL_CALL_START 与 TOOL_CALL_RESULT 的 tool_call_id。
+          request_id:
+            type: string
+            format: uuid
+            description: MTAP 审批请求唯一标识；状态为 awaiting_approval 时必填，且须与审批请求中的 request_id 相同。
+        allOf:
+          - if:
+              properties:
+                status:
+                  const: awaiting_approval
+              required: [status]
+            then:
+              required: [request_id]
   reasoning:
     description: assistant 或 assess_pod 步骤的 Thinking 活动，从 STEP_STARTED 开始，到 STEP_FINISHED 结束。
     allOf:

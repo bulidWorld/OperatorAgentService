@@ -4,6 +4,15 @@ type ChatMessage = { id: string; role: string; content?: unknown };
 type RunEntry = { activity: AgentRunActivity; sync: ActivitySyncState };
 
 /** Group protocol messages by user turn, independently of CopilotKit's rendered rows. */
+/**
+ * 将用户消息、Agent 活动、成功结果和失败状态归并为会话轮次。
+ * @param messages CopilotKit 会话中的消息列表。
+ * @param activities 按运行编号索引的活动及其同步状态。
+ * @param results 按运行编号索引的最终回复。
+ * @param failedRuns 按运行编号索引的失败说明。
+ * @param owners 按运行编号记录所属用户消息编号。
+ * @returns 按会话顺序排列的用户轮次及其运行信息。
+ */
 export function buildFaultAgentTurns(
   messages: readonly ChatMessage[],
   activities: Record<string, RunEntry>,

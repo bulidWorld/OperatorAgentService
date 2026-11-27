@@ -21,6 +21,11 @@ type DiagnosticRunError = {
   message: string;
 };
 
+/**
+ * 执行 toDiagnosticRunError 相关处理。
+ * @param value value 参数。
+ * @returns 执行结果。
+ */
 function toDiagnosticRunError(value: unknown): DiagnosticRunError {
   const objects: Record<string, unknown>[] = [];
   let current = value;
@@ -42,6 +47,12 @@ function toDiagnosticRunError(value: unknown): DiagnosticRunError {
   };
 }
 
+/**
+ * 执行 formatToolValue 相关处理。
+ * @param value value 参数。
+ * @param limit limit 参数。
+ * @returns 执行结果。
+ */
 function formatToolValue(value: unknown, limit = 1800) {
   if (typeof value === "string") return value.length > limit ? `${value.slice(0, limit)}…` : value;
   if (value === undefined || value === null) return "";
@@ -62,6 +73,11 @@ const toolLabels: Record<string, string> = {
   request_pod_restart_approval: "申请重启 Pod 审批",
 };
 
+/**
+ * 执行 ToolActivity 相关处理。
+ * @param { messages, isRunning } { messages, isRunning } 参数。
+ * @returns 执行结果。
+ */
 function ToolActivity({ messages, isRunning }: { messages: ChatMessage[]; isRunning: boolean }) {
   const calls = new Map<string, ToolCall>();
   const results = new Map<string, unknown>();
@@ -103,6 +119,11 @@ function ToolActivity({ messages, isRunning }: { messages: ChatMessage[]; isRunn
   );
 }
 
+/**
+ * 执行 DiagnosticChat 相关处理。
+ * @param { alertId } { alertId } 参数。
+ * @returns 执行结果。
+ */
 function DiagnosticChat({ alertId }: { alertId: number }) {
   const threadId = `alert-diagnostic-${alertId}`;
   const agentId = `diagnostic-${alertId}`;
@@ -169,6 +190,17 @@ function DiagnosticChat({ alertId }: { alertId: number }) {
   );
 }
 
+/**
+ * 处理AlertDiagnosticDialog相关逻辑。
+ * @param {
+  alertId,
+  onClose,
+} {
+  alertId,
+  onClose,
+} 参数。
+ * @returns 函数执行结果。
+ */
 export default function AlertDiagnosticDialog({
   alertId,
   onClose,
@@ -178,7 +210,12 @@ export default function AlertDiagnosticDialog({
 }) {
   const close = useCallback(() => onClose(), [onClose]);
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
+        /**
+ * 执行 onKeyDown 相关处理。
+ * @param event event 参数。
+ * @returns 执行结果。
+ */
+        const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
     window.addEventListener("keydown", onKeyDown);

@@ -44,6 +44,12 @@ const TOOL_SCOPES: Record<string, string> = {
  * @returns 参数校验通过时解析为 void。
  * @throws 参数不符合 JSON Schema 时抛出带 INVALID_PARAMS 错误码的错误。
  */
+/**
+ * 使用工具输入 Schema 校验调用参数。
+ * @param tool MCP 工具定义。
+ * @param value 客户端提交的参数对象。
+ * @returns 参数符合 Schema 时返回 true。
+ */
 function validToolArguments(
   tool: ToolDefinition,
   args: Record<string, unknown>,
@@ -70,6 +76,12 @@ function validToolArguments(
  * @returns 结果符合接口 Schema 时解析为 void。
  * @throws 返回结果违反契约时抛出 UPSTREAM_ERROR。
  */
+/**
+ * 使用工具输出 Schema 校验执行结果。
+ * @param tool MCP 工具定义。
+ * @param result 工具执行产生的结果。
+ * @returns 结果符合 Schema 时返回 true。
+ */
 function validToolResult(tool: ToolDefinition, result: unknown) {
   const key = tool.name + ":output";
   let validate = compiled.get(key);
@@ -90,6 +102,12 @@ function validToolResult(tool: ToolDefinition, result: unknown) {
  * @returns 所需权限满足时返回 true，否则返回 false。
  * tools 含 "ALL" 时视为拥有全部工具权限。
  */
+/**
+ * 判断指定调用者是否拥有调用工具所需权限。
+ * @param caller 已鉴权的 MCP 调用者。
+ * @param tool 待检查的工具定义。
+ * @returns 调用者被授权调用该工具时返回 true。
+ */
 function canUse(caller: McpCaller, tool: ToolDefinition) {
   const scope = TOOL_SCOPES[tool.name];
   if (!caller.tools.includes(scope) && !caller.tools.includes("ALL"))
@@ -102,6 +120,11 @@ function canUse(caller: McpCaller, tool: ToolDefinition) {
  * @param callerId 已认证调用者 ID。
  * @returns 未超过限额时解析为 void。
  * @throws 当前一分钟请求数超过上限时抛出 RATE_LIMITED。
+ */
+/**
+ * 检查并更新调用者的每分钟请求计数。
+ * @param callerId 已鉴权的调用者编号。
+ * @returns 未超过速率限制时返回 true。
  */
 function checkRateLimit(callerId: string) {
   const now = Date.now();
@@ -122,6 +145,11 @@ function checkRateLimit(callerId: string) {
  * 将工具执行异常归一化为可返回给 MCP 客户端的错误码和安全消息。
  * @param error 工具校验或业务执行产生的未知异常。
  * @returns 包含稳定 code 和 errorMessage 字段的错误对象。
+ */
+/**
+ * 将内部异常转换为适合 MCP 响应的错误码和消息。
+ * @param error 捕获到的未知异常。
+ * @returns 包含 MCP 错误码与安全错误说明的对象。
  */
 function codedError(error: unknown) {
   const message = error instanceof Error ? error.message : "工具执行失败";
@@ -169,6 +197,13 @@ function codedError(error: unknown) {
  * @param args 工具参数对象。
  * @returns 对应工具的业务结果对象。
  * @throws 工具参数、调用权限或上游服务不满足要求时抛出错误。
+ */
+/**
+ * 按工具名称调用对应业务操作并校验其输出。
+ * @param tool 待执行的 MCP 工具定义。
+ * @param args 已校验的工具参数。
+ * @returns 工具的业务执行结果。
+ * @throws 工具执行失败或结果不符合输出 Schema 时抛出错误。
  */
 async function execute(
   tool: ToolDefinition,
@@ -256,6 +291,12 @@ async function execute(
  * @param callers 已验证的 MCP 调用者授权列表。
  * @returns 匹配的调用者；凭证无效或缺失时返回 undefined。
  */
+/**
+ * 根据 Authorization bearer token 查找已配置的调用者。
+ * @param request 当前 MCP HTTP 请求。
+ * @param callers 已校验的调用者配置列表。
+ * @returns 匹配的调用者；未提供或凭证无效时返回 undefined。
+ */
 function authorizedCaller(request: Request, callers: McpCaller[]) {
   const header = request.headers.get("authorization") ?? "";
   const match = /^Bearer ([A-Za-z0-9._~+/-]{32,512})$/.exec(header);
@@ -275,6 +316,11 @@ function authorizedCaller(request: Request, callers: McpCaller[]) {
  * @param request 当前 HTTP 请求。
  * @returns 不带 Origin 或 Origin 被配置允许时返回 true，否则返回 false。
  */
+/**
+ * 校验请求来源是否允许访问 MCP HTTP 接口。
+ * @param request 当前 MCP HTTP 请求。
+ * @returns 来源检查通过时返回 true。
+ */
 function checkOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
@@ -290,6 +336,11 @@ function checkOrigin(request: Request) {
  * @param request Next.js App Router 收到的 MCP POST 请求。
  * @returns MCP JSON-RPC 响应，或包含 HTTP 错误状态的 JSON 响应。
  * @throws 正常请求错误会转换为 HTTP/MCP 错误响应；函数不会将请求处理异常传给路由层。
+ */
+/**
+ * 处理 MCP Streamable HTTP 请求并执行协议及工具权限校验。
+ * @param request 当前进入 MCP 接口的 HTTP 请求。
+ * @returns 符合 MCP 协议的 HTTP 响应。
  */
 export async function handleMcpRequest(request: Request): Promise<Response> {
   const jsonHeaders = {

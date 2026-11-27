@@ -14,8 +14,7 @@ export function isStepSelection(value: number): value is (typeof MANUAL_STEPS)[n
  * @returns 采样间隔，单位为秒。
  */
 export function queryStep(minutes: number, selected: StepSelection = "auto") {
-  // Automatic mode keeps the graph to about 120 samples. Manual mode uses
-  // one of Prometheus' accepted duration steps directly.
+  // 自动模式将图表采样点控制在约 120 个，手动模式直接采用用户选择的间隔。
   return selected === "auto" ? Math.max(30, Math.ceil(minutes * 60 / 120)) : selected;
 }
 /** 计算 PromQL rate 函数使用的窗口长度。
@@ -23,7 +22,7 @@ export function queryStep(minutes: number, selected: StepSelection = "auto") {
  * @returns rate 窗口长度，至少为 300 秒。
  */
 export function rateWindow(step: number) {
-  // Allow enough samples for rate even when the evaluation interval grows.
+  // 采样间隔增大时同步扩大窗口，确保 rate 计算仍包含足够样本。
   return Math.max(300, step * 4);
 }
 /** 将秒数格式化为 Prometheus 使用的时长字符串。

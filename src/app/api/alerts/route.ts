@@ -23,7 +23,11 @@ export async function GET(request: NextRequest) {
   return withAccessLog(request, "统一告警查询", () => handleGet(request));
 }
 
-/** 清除选中的告警或匹配筛选条件的告警。 */
+/**
+ * 清除选中的告警或匹配筛选条件的告警。
+ * @param request 包含 ids 列表或 filters 条件的 DELETE 请求。
+ * @returns 已清除数量；请求无效或数据库操作失败时返回错误响应。
+ */
 export async function DELETE(request: NextRequest) {
   return withAccessLog(request, "清除资源告警", async () => {
     try {

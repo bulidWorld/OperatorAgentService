@@ -12,7 +12,12 @@ type PodList = {
   }>;
 };
 
-/** 查询集群全部 Pod，可选按容器名称子串过滤。 */
+/**
+ * 查询集群全部 Pod，可选按容器名称子串过滤。
+ * @param input.containerName 可选的容器名称搜索关键字。
+ * @returns Pod 总数及其命名空间、名称、状态和容器列表。
+ * @throws ServiceAccount 凭证不可用、API 请求失败或响应 JSON 无效时抛出错误。
+ */
 export async function getPods(input: { containerName?: string }) {
   const host = process.env.KUBERNETES_SERVICE_HOST;
   if (!host) throw new Error("未检测到集群内 Kubernetes API Server 地址");
@@ -106,7 +111,13 @@ export async function getPods(input: { containerName?: string }) {
   return { total: pods.length, pods };
 }
 
-/** 查询指定命名空间中 Pod 的完整 Kubernetes API 对象。 */
+/**
+ * 查询指定命名空间中 Pod 的完整 Kubernetes API 对象。
+ * @param input.namespace Kubernetes 命名空间。
+ * @param input.pod Pod 名称。
+ * @returns Kubernetes API 返回的 Pod 对象。
+ * @throws 参数格式无效、Pod 不存在、API 请求失败或响应 JSON 无效时抛出错误。
+ */
 export async function getPodDetails(input: { namespace: string; pod: string }) {
   const { namespace, pod } = input;
   if (![namespace, pod].every((value) => /^[a-zA-Z0-9_.-]+$/.test(value)))

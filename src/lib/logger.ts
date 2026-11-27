@@ -18,6 +18,12 @@ export function withLogContext<T>(fields: Record<string, unknown>, action: () =>
  * @param fields 事件附带的结构化日志字段。
  * @returns 可读的日志说明文本。
  */
+/**
+ * 根据日志事件及字段生成中文说明。
+ * @param event 日志事件名称。
+ * @param fields 与事件关联的结构化字段。
+ * @returns 可供控制台和日志查看器展示的说明文字。
+ */
 function describe(event: string, fields: Record<string, unknown>): string {
   const feature = String(fields.feature || "监控服务");
   switch (event) {
@@ -70,6 +76,11 @@ export function cleanupLogs(directory = logDirectory(), now = Date.now()) {
 }
 
 /** 将 HTTP 参数或响应限制在固定字符数内，超出时保留首尾内容。 */
+/**
+ * 限制 HTTP 请求或响应详情的日志体积。
+ * @param value 待处理的请求或响应数据。
+ * @returns 截断后的数据或适合记录的摘要值。
+ */
 function limitHttpDetail(value: unknown): unknown {
   const serialized = JSON.stringify(value);
   if (serialized === undefined || serialized.length <= HTTP_DETAIL_MAX_CHARS) return value;
@@ -84,6 +95,13 @@ function limitHttpDetail(value: unknown): unknown {
  * @param event 日志事件标识。
  * @param fields 与事件相关的结构化字段。
  * @returns 无返回值；写入失败时将错误输出到控制台。
+ */
+/**
+ * 将结构化日志输出到控制台并按类别写入日志文件。
+ * @param category 日志所属类别。
+ * @param event 日志事件名称。
+ * @param fields 事件的结构化上下文。
+ * @returns 无返回值；日志写入失败时按内部错误策略处理。
  */
 function write(category: Category, event: string, fields: Record<string, unknown>) {
   const now = new Date();
@@ -172,6 +190,12 @@ function write(category: Category, event: string, fields: Record<string, unknown
 }
 
 /** 将日志系统自身错误作为 JSON 异常输出，避免回退成不合规范的文本日志。 */
+/**
+ * 以内部错误类别记录日志系统自身的异常。
+ * @param event 内部异常对应的事件名称。
+ * @param error 捕获到的异常对象。
+ * @returns 无返回值。
+ */
 function writeInternalException(event: string, error: unknown) {
   const exception = error instanceof Error ? error : new Error(String(error));
   console.error(JSON.stringify({

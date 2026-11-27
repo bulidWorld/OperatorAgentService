@@ -56,6 +56,7 @@ export async function runNetworkProbe(input: { type: ProbeName; host: string; po
   const host = input.host.trim();
   validateHost(host);
   let url: URL | undefined;
+  // 在读取命令白名单前验证 HTTP/TCP 目标，确保后续命令只接收规范化参数。
   if (input.type === "tcp" && (!Number.isInteger(input.port) || input.port! < 1 || input.port! > 65535))
     throw new Error("TCP 检测必须提供 1 到 65535 的端口");
   if (input.type === "http") {
@@ -102,6 +103,7 @@ export async function runNetworkProbe(input: { type: ProbeName; host: string; po
       vantagePoint: "OperatorAgentService Pod 网络命名空间",
     };
   } catch (error) {
+    // 网络错误、命令非零退出及执行超时都转换为探测结果，避免丢失目标侧诊断信息。
     const cause = error as Error & { code?: number | string; stdout?: string; stderr?: string; killed?: boolean };
     const httpStatus = input.type === "http" ? Number(cause.stdout?.trim()) || null : null;
     finishHttpLog?.(httpStatus ?? undefined);

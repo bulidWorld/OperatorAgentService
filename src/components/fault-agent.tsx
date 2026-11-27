@@ -15,6 +15,12 @@ import { isStepOutput, parseAgentRunActivity, reduceActivityDelta, reduceActivit
 import { useRef } from "react";
 import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 
+/**
+ * 管理AgentActivity相关状态和副作用。
+ * @param agent agent 参数。
+ * @param isReady isReady 参数。
+ * @returns 执行结果。
+ */
 function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: boolean) {
   const [runUsers, setRunUsers] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, string>>({});
@@ -36,11 +42,22 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     setMessageText({});
     messageTextCache.current = {};
     activeRunId.current = null;
-    const save = (message: ActivityMessage | null, sync: ActivitySyncState) => {
+        /**
+ * 执行 save 相关处理。
+ * @param message message 参数。
+ * @param sync sync 参数。
+ * @returns 执行结果。
+ */
+        const save = (message: ActivityMessage | null, sync: ActivitySyncState) => {
       const parsed = parseAgentRunActivity(message?.content);
       if (parsed) setActivities((current) => ({ ...current, [parsed.run.runId]: { activity: parsed, sync } }));
     };
-    const hydrate = (messages: typeof agent.messages) => {
+        /**
+ * 执行 hydrate 相关处理。
+ * @param messages messages 参数。
+ * @returns 执行结果。
+ */
+        const hydrate = (messages: typeof agent.messages) => {
       let userId: string | undefined;
       for (const message of messages) {
         if (message.role === "user") userId = message.id;
@@ -122,6 +139,11 @@ const eventTypeLabels: Record<string, string> = {
   approval: "人工审批",
 };
 
+/**
+ * 执行 StatusIcon 相关处理。
+ * @param { status, type } { status, type } 参数。
+ * @returns 执行结果。
+ */
 function StatusIcon({ status, type }: { status: string; type: string }) {
   if (status === "running") return <LoaderCircle className="activity-status-icon is-spinning" size={16} />;
   if (status === "awaiting_approval") return <ShieldCheck className="activity-status-icon" size={16} />;
@@ -134,11 +156,21 @@ function StatusIcon({ status, type }: { status: string; type: string }) {
   return <Activity className="activity-status-icon" size={16} />;
 }
 
+/**
+ * 执行 displayValue 相关处理。
+ * @param value value 参数。
+ * @returns 执行结果。
+ */
 function displayValue(value: unknown): string {
   if (typeof value === "string") return value;
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 
+/**
+ * 执行 EventDetails 相关处理。
+ * @param { item, content, onOpen } { item, content, onOpen } 参数。
+ * @returns 执行结果。
+ */
 function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?: unknown; onOpen: (title: string, content: unknown) => void }) {
   if ((item.type === "reasoning" || item.type === "model_summary") && isStepOutput(item.output) && item.output.messages.length) {
     const messages = item.output.messages.map(({ type, text }) => `${type === "reasoning" ? "推理摘要" : "助手回复"}\n${text}`);
@@ -158,6 +190,11 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
   return <button type="button" className="activity-event-details-button" onClick={() => onOpen(details[0][0], details[0][1])}>查看详细内容</button>;
 }
 
+/**
+ * 执行 ActivityTimeline 相关处理。
+ * @param { activity, sync, expanded, onExpandedChange, toolResults, messageText } { activity, sync, expanded, onExpandedChange, toolResults, messageText } 参数。
+ * @returns 执行结果。
+ */
 function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string> }) {
   const openApproval = useContext(ApprovalContext);
   const [detail, setDetail] = useState<{ title: string; content: unknown } | null>(null);
@@ -199,12 +236,22 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
   );
 }
 
+/**
+ * 执行 formatActivityTime 相关处理。
+ * @param value value 参数。
+ * @returns 执行结果。
+ */
 function formatActivityTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date);
 }
 
+/**
+ * 执行 readRequest 相关处理。
+ * @param interrupt interrupt 参数。
+ * @returns 执行结果。
+ */
 function readRequest(interrupt: Interrupt): ApprovalRequest | null {
   const metadata = interrupt.metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
@@ -216,6 +263,19 @@ function readRequest(interrupt: Interrupt): ApprovalRequest | null {
   return parseApprovalRequest(raw) ?? parseApprovalRequest(metadataRecord.approvalRequest);
 }
 
+/**
+ * 处理ApprovalField相关逻辑。
+ * @param {
+  input,
+  value,
+  onChange,
+} {
+  input,
+  value,
+  onChange,
+} 参数。
+ * @returns 函数执行结果。
+ */
 function ApprovalField({
   input,
   value,
@@ -285,6 +345,23 @@ function ApprovalField({
   );
 }
 
+/**
+ * 处理ApprovalCard相关逻辑。
+ * @param {
+  request,
+  interruptId,
+  message,
+  resolve,
+  cancel,
+} {
+  request,
+  interruptId,
+  message,
+  resolve,
+  cancel,
+} 参数。
+ * @returns 函数执行结果。
+ */
 function ApprovalCard({
   request,
   interruptId,
@@ -313,7 +390,12 @@ function ApprovalCard({
     );
   }
 
-  const decide = (status: "approved" | "rejected") => {
+    /**
+ * 执行 decide 相关处理。
+ * @param status status 参数。
+ * @returns 执行结果。
+ */
+    const decide = (status: "approved" | "rejected") => {
     const submittedAnswers = status === "approved"
       ? { ...answers, ...Object.fromEntries(request.inputs.filter((input) => input.type === "confirm" && input.mustBeTrue).map((input) => [input.key, true])) }
       : answers;
@@ -375,17 +457,27 @@ function ApprovalCard({
 
 const ApprovalContext = createContext<(event: AgentRunEvent) => void>(() => {});
 
+/**
+ * 执行 FaultAgentChatView 相关处理。
+ * @param props props 参数。
+ * @returns 执行结果。
+ */
 function FaultAgentChatView(props: ComponentProps<typeof CopilotChatView>) { return <CopilotChatView {...props} />; }
 
+/**
+ * 执行 ApprovalLayer 相关处理。
+ * @param { interrupts, resolve, cancel } { interrupts, resolve, cancel } 参数。
+ * @returns 执行结果。
+ */
 function ApprovalLayer({ interrupts, resolve, cancel }: { interrupts: Interrupt[]; resolve: (value: unknown, id?: string) => unknown; cancel: (id?: string) => unknown }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = interrupts.find((item) => item.id === selectedId);
   useEffect(() => { if (selectedId && !interrupts.some((item) => item.id === selectedId)) setSelectedId(null); }, [interrupts, selectedId]);
-  // The click callback is attached through a small registry keyed by the activity request id.
+  // 按活动上的审批请求 ID 精确查找对应的 LangGraph 中断。
   useEffect(() => { approvalOpener.current = (event) => {
-    const correlation = event.correlation as { approvalRequestId?: string; requestId?: string } | undefined;
-    const requestId = event.type === "approval" ? event.approval?.requestId : correlation?.approvalRequestId ?? correlation?.requestId;
-    const match = interrupts.find((item) => { const request = readRequest(item); return request && (!requestId || request.request_id === requestId); });
+    const requestId = event.type === "approval" ? event.approval?.requestId : event.request_id;
+    if (!requestId) return;
+    const match = interrupts.find((item) => { const request = readRequest(item); return request?.request_id === requestId; });
     if (match) setSelectedId(match.id);
   }; return () => { approvalOpener.current = null; }; }, [interrupts]);
   return selected ? <div className="approval-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}><section className="approval-modal" role="dialog" aria-modal="true"><ApprovalCard request={readRequest(selected)} interruptId={selected.id} message={selected.message} resolve={(value, id) => { const result = resolve(value, id); setSelectedId(null); return result; }} cancel={(id) => { const result = cancel(id); setSelectedId(null); return result; }} /><button className="approval-modal-close" type="button" aria-label="关闭审批框" onClick={() => setSelectedId(null)}>×</button></section></div> : null;
@@ -393,11 +485,20 @@ function ApprovalLayer({ interrupts, resolve, cancel }: { interrupts: Interrupt[
 
 const approvalOpener: { current: ((event: AgentRunEvent) => void) | null } = { current: null };
 
+/**
+ * 执行 FaultAgent 相关处理。
+ * @returns 执行结果。
+ */
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
   const { activities, runUsers, results, failedRuns, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
-  const openApproval = (event: AgentRunEvent) => approvalOpener.current?.(event);
+    /**
+ * 执行 openApproval 相关处理。
+ * @param event event 参数。
+ * @returns 执行结果。
+ */
+    const openApproval = (event: AgentRunEvent) => approvalOpener.current?.(event);
   const approval = useInterrupt({
     renderInChat: false,
     enabled: ({ name }) => name === "on_interrupt",

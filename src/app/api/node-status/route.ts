@@ -36,7 +36,13 @@ async function handleGet(request: Request) {
   }
 }
 
+/**
+ * 查询节点或 Pod 的实时指标，并组装状态映射和资源列表。
+ * @param scope 要查询的资源范围。
+ * @returns 可用状态映射及资源指标集合。
+ */
 async function loadResources(scope: "nodes" | "pods"): Promise<LiveResources> {
+  // Pod 状态需额外合并最近 24 小时的重启计数。
   if (scope === "pods") {
     const [cpu, memory, network, availability, restarts] = await Promise.all([getPodCpuUsage(), getPodMemoryUsage(), getPodNetworkReceive(), getPodAvailability(), getPodRestarts24h()]);
     const resources = mergeResources("pods", [cpu.result, memory.result, network.result, availability.result]);

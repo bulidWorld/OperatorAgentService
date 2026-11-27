@@ -30,6 +30,11 @@ const objectTypes: Record<(typeof resourceLabels)[number], string> = {
  * @param labels 单条告警携带的标签映射。
  * @returns 推断出的对象类型、对象名称和命名空间；无法推断时对应字段为 null。
  */
+/**
+ * 从告警标签中识别关联的 Kubernetes 资源。
+ * @param labels Alertmanager 告警标签。
+ * @returns 资源类型、名称及命名空间；无法识别时对应字段为 null。
+ */
 export function alertResource(labels: Record<string, string>): { type: string | null; name: string | null; namespace: string | null } {
   const label = resourceLabels.find((key) => !!labels[key]) ?? null;
   return { type: label ? objectTypes[label] : null, name: label ? labels[label] : null, namespace: labels.namespace || null };
@@ -38,6 +43,11 @@ export function alertResource(labels: Record<string, string>): { type: string | 
 /** 检查值是否为只包含字符串值的对象。
  * @param value 待检查的任意值。
  * @returns 值符合字符串映射结构时返回 true。
+ */
+/**
+ * 判断值是否为字符串键值组成的对象。
+ * @param value 待检查的数据。
+ * @returns 所有属性值均为字符串时返回 true。
  */
 function stringMap(value: unknown): value is Record<string, string> {
   return !!value && typeof value === "object" && !Array.isArray(value) &&
@@ -48,6 +58,11 @@ function stringMap(value: unknown): value is Record<string, string> {
  * @param value 待检查的日期值。
  * @returns value 是有效日期字符串时返回 true。
  */
+/**
+ * 判断字符串是否可解析为有效日期。
+ * @param value 待检查的日期值。
+ * @returns 值为可解析日期字符串时返回 true。
+ */
 function validDate(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
@@ -56,6 +71,11 @@ function validDate(value: unknown): value is string {
  * @param value JSON 解码后的 webhook 请求体。
  * @returns 单条告警数组，包含指纹、原始告警内容和批次元数据。
  * @throws webhook 版本、条数或告警字段不符合要求时抛出错误。
+ */
+/**
+ * 解析 Alertmanager Webhook 请求并校验其中的告警记录。
+ * @param value Webhook 请求体。
+ * @returns 校验通过并转换后的告警数组；无效请求返回空数组。
  */
 export function parseWebhook(value: unknown): WebhookAlert[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("无效的 Alertmanager webhook 数据");
@@ -86,6 +106,10 @@ export function parseWebhook(value: unknown): WebhookAlert[] {
 /** 查询 PostgreSQL 中当前所有活动告警，并映射为应用使用的结构。
  * @returns 按接收时间倒序排列的 firing 告警列表。
  */
+/**
+ * 从数据库读取 Alertmanager 推送的告警记录。
+ * @returns 按最近更新时间倒序排列的告警列表。
+ */
 export async function getPushedAlerts(): Promise<StoredAlert[]> {
   const result = await getDatabase().query<{
     fingerprint: string; labels: Record<string, string>; annotations: Record<string, string>;
@@ -110,6 +134,11 @@ export async function getPushedAlerts(): Promise<StoredAlert[]> {
  * @param alerts 已解析的 webhook 告警列表。
  * @returns 提交后数据库中的活动告警数量。
  * @throws 数据库操作失败或活动告警数超过 10000 条时回滚并抛出错误。
+ */
+/**
+ * 将 Webhook 中的告警写入数据库并更新已解决告警状态。
+ * @param alerts 已校验并规范化的 Alertmanager 告警。
+ * @returns 本次插入或更新的记录数。
  */
 export async function applyWebhook(alerts: WebhookAlert[]): Promise<number> {
   const client = await getDatabase().connect();
