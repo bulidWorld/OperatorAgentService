@@ -16,6 +16,77 @@ import { isStepOutput, parseAgentRunActivity, reduceActivityDelta, reduceActivit
 import { useRef } from "react";
 import { appendMessageText, storeToolResult } from "@/lib/activity-details";
 
+type ArtifactPart = { data?: unknown; text?: string; raw?: string; url?: string; filename?: string; mediaType?: string };
+type ArtifactUpdate = { taskId: string; artifact: { artifactId?: string; name?: string; description?: string; parts: ArtifactPart[] } };
+
+/**
+ * 校验 A2A 产物更新事件载荷。
+ * @param value CUSTOM 事件中的业务数据。
+ * @returns 数据符合产物更新结构时返回载荷，否则返回 null。
+ */
+function parseArtifactUpdate(value: unknown): ArtifactUpdate | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const data = value as Record<string, unknown>;
+  if (typeof data.taskId !== "string" || !data.taskId || !data.artifact || typeof data.artifact !== "object" || Array.isArray(data.artifact)) return null;
+  const artifact = data.artifact as Record<string, unknown>;
+  if (!Array.isArray(artifact.parts)) return null;
+  const parts = artifact.parts.filter((part): part is ArtifactPart => Boolean(part) && typeof part === "object" && !Array.isArray(part));
+  return { taskId: data.taskId, artifact: { artifactId: typeof artifact.artifactId === "string" ? artifact.artifactId : undefined, name: typeof artifact.name === "string" ? artifact.name : undefined, description: typeof artifact.description === "string" ? artifact.description : undefined, parts } };
+}
+
+/**
+ * 按 MIME 类型解析产物分片的展示内容。
+ * @param part A2A 产物内容分片。
+ * @returns 可用于抽屉展示的文本内容。
+ */
+function artifactPartContent(part: ArtifactPart): string {
+  if (part.text !== undefined) return part.text;
+  if (part.data !== undefined) return displayValue(part.data);
+  if (part.raw !== undefined) return part.mediaType === "application/octet-stream" ? `Base64 数据（${part.raw.length} 个字符）` : part.raw;
+  if (part.url) return part.url;
+  return "暂无可展示的内容";
+}
+
+/**
+ * 将二进制产物转换为浏览器下载链接。
+ * @param part 包含 base64 原始数据或远程地址的产物分片。
+ * @returns 可下载的 data URL 或远程 URL；无二进制数据时返回空字符串。
+ */
+function artifactDownloadUrl(part: ArtifactPart): string {
+  if (part.url) return part.url;
+  if (!part.raw) return "";
+  return `data:${part.mediaType || "application/octet-stream"};base64,${part.raw}`;
+}
+
+/**
+ * 生成产物查看入口及内容抽屉。
+ * @param artifacts A2A 产物更新事件列表。
+ * @returns 产物链接和对应的右侧抽屉。
+ */
+function ArtifactLinks({ artifacts }: { artifacts: ArtifactUpdate[] }) {
+  const [selected, setSelected] = useState<ArtifactUpdate["artifact"] | null>(null);
+  const titleId = useId();
+  if (!artifacts.length) return null;
+  const latest = new Map<string, ArtifactUpdate["artifact"]>();
+  for (const item of artifacts) latest.set(item.artifact.artifactId ?? `${item.taskId}:${item.artifact.name ?? "artifact"}`, item.artifact);
+  return <>
+    <div className="fault-agent-artifact-links" aria-label="任务产物">{[...latest.values()].map((artifact, index) => {
+      const binaryParts = artifact.parts.filter((part) => part.mediaType === "application/zip" || part.mediaType === "application/octet-stream");
+      const previewParts = artifact.parts.some((part) => !binaryParts.includes(part));
+      return <div className="fault-agent-artifact-item" key={`${artifact.artifactId ?? artifact.name}:${index}`}>
+        {previewParts && <button className="fault-agent-artifact-link" type="button" onClick={() => setSelected(artifact)}><FileText size={15} aria-hidden="true" /><span>{artifact.name || artifact.description || "查看任务产物"}</span><span aria-hidden="true">↗</span></button>}
+        {binaryParts.map((part, partIndex) => <a className="fault-agent-artifact-link" key={`${part.filename ?? part.mediaType}:${partIndex}`} href={artifactDownloadUrl(part)} download={part.filename || artifact.name || "artifact"} target={part.url ? "_blank" : undefined} rel={part.url ? "noreferrer" : undefined}><FileText size={15} aria-hidden="true" /><span>下载 {part.filename || artifact.name || "二进制文件"}</span><span aria-hidden="true">↓</span></a>)}
+      </div>;
+    })}</div>
+    {selected && <div className="artifact-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }} onKeyDown={(event) => { if (event.key === "Escape") setSelected(null); }}><aside className="artifact-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}><header><div><span className="activity-kicker">任务产物</span><h3 id={titleId}>{selected.name || "产物详情"}</h3></div><button type="button" aria-label="关闭产物详情" onClick={() => setSelected(null)}>×</button></header>{selected.description && <p className="artifact-drawer-description">{selected.description}</p>}<div className="artifact-drawer-content">{selected.parts.map((part, index) => {
+      const mediaType = part.mediaType || (part.data !== undefined ? "application/json" : part.url ? "text/uri-list" : "text/plain");
+      const content = artifactPartContent(part);
+      if (mediaType === "application/zip" || mediaType === "application/octet-stream") return null;
+      return <section className="artifact-part" key={`${part.filename ?? mediaType}:${index}`}><div className="artifact-part-heading"><b>{part.filename || mediaType}</b><span>{mediaType}</span></div>{part.url ? <a className="artifact-file-link" href={part.url} target="_blank" rel="noreferrer">打开文件链接</a> : mediaType === "text/markdown" ? <Markdown content={content} /> : mediaType === "application/json" ? <pre className="artifact-json">{content}</pre> : <pre className={mediaType === "text/x-diff" ? "artifact-diff" : "artifact-text"}>{content}</pre>}</section>;
+    })}</div></aside></div>}
+  </>;
+}
+
 /**
  * 管理AgentActivity相关状态和副作用。
  * @param agent agent 参数。
@@ -29,6 +100,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
   const [activities, setActivities] = useState<Record<string, { activity: AgentRunActivity; sync: ActivitySyncState }>>({});
   const [toolResults, setToolResults] = useState<Record<string, unknown>>({});
   const [messageText, setMessageText] = useState<Record<string, string>>({});
+  const [artifactUpdates, setArtifactUpdates] = useState<ArtifactUpdate[]>([]);
   const messageTextCache = useRef<Record<string, string>>({});
   const activeRunId = useRef<string | null>(null);
 
@@ -41,6 +113,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     setFailedRuns({});
     setToolResults({});
     setMessageText({});
+    setArtifactUpdates([]);
     messageTextCache.current = {};
     activeRunId.current = null;
         /**
@@ -102,6 +175,11 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
       onToolCallResultEvent: ({ event }) => {
         setToolResults((current) => storeToolResult(current, event.toolCallId, event.content));
       },
+      onCustomEvent: ({ event }) => {
+        if (event.name !== "a2a_artifact_update") return;
+        const update = parseArtifactUpdate(event.value);
+        if (update) setArtifactUpdates((current) => [...current, update]);
+      },
       onActivitySnapshotEvent: ({ event }) => {
         if (event.activityType !== "agent_run") return;
         const previous = snapshots.get(event.messageId);
@@ -122,7 +200,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     return () => subscription.unsubscribe();
   }, [agent, isReady, agent.threadId]);
 
-  return { activities, runUsers, results, failedRuns, toolResults, messageText };
+  return { activities, runUsers, results, failedRuns, toolResults, messageText, artifactUpdates };
 }
 
 const statusLabels: Record<string, string> = {
@@ -529,7 +607,7 @@ const approvalOpener: { current: ((event: AgentRunEvent) => void) | null } = { c
  */
 export default function FaultAgent() {
   const { agent, isReady } = useAgent();
-  const { activities, runUsers, results, failedRuns, toolResults, messageText } = useAgentActivity(agent, isReady);
+  const { activities, runUsers, results, failedRuns, toolResults, messageText, artifactUpdates } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [historyExpandedRuns, setHistoryExpandedRuns] = useState<Record<string, boolean>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -657,6 +735,7 @@ export default function FaultAgent() {
                     );
                   })}
                   {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.failed || turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看历史时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
+                  <ArtifactLinks artifacts={artifactUpdates.filter((item) => turn.runs.some(({ activity }) => activity.events.some((event) => event.type === "a2a_task" && (event.output as { taskId?: string } | null)?.taskId === item.taskId)))}/>
                 </div>
               </section>)}
             </div>;

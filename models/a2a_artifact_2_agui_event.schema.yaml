@@ -1,0 +1,128 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://zhiwenxia.org/schemas/a2a_artifact_2_agui_event.schema.yaml
+title: A2A Artifact Update to AG-UI Custom Event Schema
+description: >-
+  定义将 A2A artifactUpdate 映射为 AG-UI CUSTOM（自定义事件）时的完整事件载荷。
+  输入是 A2A 流中的 artifactUpdate 对象；输出保留任务、上下文、产物、分片及源事件元数据，
+  使消费者能够展示结构化结果、文本/Markdown、diff、二进制引用和远程文件链接。
+  本 Schema 校验输出的 AG-UI 自定义事件，不代表 AG-UI 标准定义了此业务事件名或 data 字段。
+  消费者可按 artifact.artifactId 关联同一任务产生的产物分片。
+type: object
+additionalProperties: false
+required: [type, name, data]
+properties:
+  type:
+    const: CUSTOM
+    description: AG-UI 自定义事件类型，固定为 CUSTOM。
+  name:
+    const: a2a_artifact_update
+    description: 自定义事件名称，固定为 a2a_artifact_update，供客户端按名称分发。
+  data:
+    $ref: '#/$defs/artifactUpdate'
+$defs:
+  nonEmptyString:
+    type: string
+    minLength: 1
+    description: 非空字符串。
+  artifactUpdate:
+    type: object
+    description: 从 A2A artifactUpdate 转换后放入 AG-UI CUSTOM.data 的业务载荷。
+    additionalProperties: false
+    required: [taskId, artifact]
+    properties:
+      taskId:
+        $ref: '#/$defs/nonEmptyString'
+        description: A2A 远端任务标识，用于关联同一任务产生的产物。
+      contextId:
+        $ref: '#/$defs/nonEmptyString'
+        description: A2A 上下文标识；源事件未提供时可省略。
+      artifact:
+        $ref: '#/$defs/artifact'
+      metadata:
+        $ref: '#/$defs/eventMetadata'
+  artifact:
+    type: object
+    description: A2A Artifact。artifactId 是跨分片合并的稳定键；parts 按原顺序保留。
+    additionalProperties: false
+    required: [parts]
+    properties:
+      artifactId:
+        $ref: '#/$defs/nonEmptyString'
+        description: 产物标识；同一任务内分片合并时必须保持一致。
+      name:
+        $ref: '#/$defs/nonEmptyString'
+        description: 产物机器可读名称，例如 coding-result。
+      description:
+        type: string
+        description: 面向使用者的产物说明。
+      parts:
+        type: array
+        description: 产物内容片段，顺序有意义；一个片段必须且只能包含一种内容载体。
+        items:
+          $ref: '#/$defs/part'
+      metadata:
+        type: object
+        description: A2A 产物附加元数据；可承载 agentName、provider、schemaVersion、createdAt 等。
+        additionalProperties: true
+      extensions:
+        type: array
+        description: A2A 扩展声明列表；没有扩展时可为空数组。
+        items: {}
+  part:
+    type: object
+    description: >-
+      A2A Part。data 表示 JSON 结构化内容，text 表示内联文本，raw 表示 base64 编码字节，
+      url 表示外部内容引用。mediaType 描述载荷 MIME 类型；filename 和 metadata 为可选提示信息。
+    additionalProperties: false
+    properties:
+      data:
+        description: 结构化 JSON 值；mediaType 通常为 application/json。允许任意 JSON 值。
+      text:
+        type: string
+        description: UTF-8 文本内容，例如 Markdown 或 diff；空文本合法。
+      raw:
+        type: string
+        contentEncoding: base64
+        description: RFC 4648 base64 编码的原始字节内容。
+      url:
+        type: string
+        format: uri
+        description: 可访问该内容的 URI；通常用于文件或大型产物的外部引用。
+      filename:
+        $ref: '#/$defs/nonEmptyString'
+        description: 建议保存或展示时使用的文件名。
+      mediaType:
+        type: string
+        enum:
+          - application/json
+          - text/plain
+          - text/markdown
+          - text/x-diff
+          - application/octet-stream
+          - application/zip
+        description: 内容的 MIME 类型；枚举覆盖 JSON、纯文本、Markdown、diff、二进制及 ZIP 文件。
+      metadata:
+        type: object
+        description: 内容片段的附加元数据。
+        additionalProperties: true
+    oneOf:
+      - required: [data]
+      - required: [text]
+      - required: [raw]
+      - required: [url]
+  eventMetadata:
+    type: object
+    description: A2A 流事件元数据，可选包含事件标识、顺序号及产生时间。
+    additionalProperties: true
+    properties:
+      eventId:
+        $ref: '#/$defs/nonEmptyString'
+        description: 源 A2A 事件标识。
+      sequence:
+        type: integer
+        minimum: 0
+        description: 源流中的事件序号，若提供则不得为负数。
+      timestamp:
+        type: string
+        format: date-time
+        description: 源事件时间，使用 ISO 8601/RFC 3339 日期时间格式。
