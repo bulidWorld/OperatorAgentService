@@ -58,7 +58,7 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
  * @param messages messages 参数。
  * @returns 执行结果。
  */
-        const hydrate = (messages: typeof agent.messages) => {
+        const hydrate = (messages: readonly (typeof agent.messages)[number][]) => {
       let userId: string | undefined;
       for (const message of messages) {
         if (message.role === "user") userId = message.id;
@@ -76,6 +76,8 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
     hydrate(agent.messages);
     const subscription = agent.subscribe({
       onRunStartedEvent: ({ event, messages }) => {
+        // RUN_STARTED.input.messages 也可能携带已有活动基线，先同步到本地补丁缓存。
+        hydrate(messages);
         activeRunId.current = event.runId;
         const user = [...messages].reverse().find((message) => message.role === "user");
         if (user) setRunUsers((current) => ({ ...current, [event.runId]: user.id }));
@@ -107,10 +109,12 @@ function useAgentActivity(agent: ReturnType<typeof useAgent>["agent"], isReady: 
         snapshots.set(event.messageId, result);
         save(result.activity, result.sync);
       },
-      onActivityDeltaEvent: ({ event }) => {
+      onActivityDeltaEvent: ({ event, activityMessage }) => {
         if (event.activityType !== "agent_run") return;
+        // AG-UI 在触发回调前已确认活动消息存在，可用它补齐 RUN_STARTED 中未同步的基线。
         const previous = snapshots.get(event.messageId);
-        const result = reduceActivityDelta(previous?.activity ?? null, event, previous?.sync ?? "ready");
+        const baseline = previous?.activity ?? activityMessage ?? null;
+        const result = reduceActivityDelta(baseline, event, previous?.sync ?? "ready");
         snapshots.set(event.messageId, result);
         save(result.activity, result.sync);
       },
@@ -139,6 +143,7 @@ const eventTypeLabels: Record<string, string> = {
   reasoning: "推理",
   model_summary: "模型总结",
   tool_execution: "工具执行",
+  a2a_tool_execution: "远端工具调用",
   a2a_task: "远端任务",
   system_step: "系统步骤",
   approval: "人工审批",
@@ -155,7 +160,7 @@ function StatusIcon({ status, type }: { status: string; type: string }) {
   if (status === "failed") return <CircleAlert className="activity-status-icon" size={16} />;
   if (status === "cancelled") return <X className="activity-status-icon" size={16} />;
   if (status === "completed") return <Check className="activity-status-icon" size={16} />;
-  if (type === "tool_execution") return <Wrench className="activity-status-icon" size={16} />;
+  if (type === "tool_execution" || type === "a2a_tool_execution") return <Wrench className="activity-status-icon" size={16} />;
   if (type === "approval") return <ShieldCheck className="activity-status-icon" size={16} />;
   if (type === "model_inference" || type === "reasoning" || type === "model_summary") return <Bot className="activity-status-icon" size={16} />;
   return <Activity className="activity-status-icon" size={16} />;
@@ -206,7 +211,14 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
   if (Array.isArray(output?.resources) && output.resources.length) details.push(["资源", output.resources]);
   if (item.type === "reasoning" && Array.isArray(output?.summary) && output.summary.length) details.push(["推理摘要", output.summary]);
   if (item.error) details.push(["错误摘要", item.error]);
-  if (content !== undefined) details.splice(0, details.length, [item.type === "tool_execution" ? "工具调用结果" : "模型回复", content]);
+  if (content !== undefined) {
+    const title = item.type === "tool_execution"
+      ? "工具调用结果"
+      : item.type === "a2a_tool_execution"
+        ? "远端工具调用结果"
+        : "模型回复";
+    details.splice(0, details.length, [title, content]);
+  }
   if (!details.length) return null;
   return <button type="button" className="activity-event-details-button" onClick={() => onOpen(details[0][0], details[0][1])}>查看详细内容</button>;
 }
@@ -250,7 +262,7 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
                 {item.tool && <p className="activity-tool-label"><Wrench size={12} />{item.tool.name}{item.tool.server ? <span>· {item.tool.server}</span> : null}</p>}
                 {item.type === "approval" && item.approval && <p className="activity-approval-ref"><ShieldCheck size={12} />{item.approval.requestId ? <>审批单 <code>{item.approval.requestId}</code></> : "需要人工审批"}</p>}
                 {item.status === "awaiting_approval" && item.type === "tool_execution" && <p className="activity-approval-ref"><ShieldCheck size={12} />需要审批 · 点击查看并处理</p>}
-                <EventDetails item={item} content={item.type === "tool_execution" ? toolResults[item.correlation?.toolCallId ?? ""] : item.type === "model_inference" ? ((item.output as { text?: string } | null | undefined)?.text ?? messageText[item.correlation?.messageId ?? ""]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
+                <EventDetails item={item} content={item.type === "tool_execution" || item.type === "a2a_tool_execution" ? toolResults[item.correlation?.toolCallId ?? ""] : item.type === "model_inference" ? ((item.output as { text?: string } | null | undefined)?.text ?? messageText[item.correlation?.messageId ?? ""]) : undefined} onOpen={(title, content) => setDetail({ title, content })} />
               </article>
             </li>
           ))}

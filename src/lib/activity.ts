@@ -167,6 +167,7 @@ const activityTypes = {
     "reasoning",
     "model_summary",
     "tool_execution",
+    "a2a_tool_execution",
     "a2a_task",
   ]),
 };
@@ -294,6 +295,18 @@ export function parseAgentRunActivity(value: unknown): AgentRunActivity | null {
             (entry.output === null || isStepOutput(entry.output))
           );
         }
+        if (entry.type === "a2a_tool_execution")
+          return (
+            isRecord(entry.tool) &&
+            typeof entry.tool.name === "string" &&
+            entry.tool.name.length > 0 &&
+            (entry.tool.server === undefined ||
+              typeof entry.tool.server === "string") &&
+            isRecord(entry.correlation) &&
+            Object.keys(entry.correlation).length === 1 &&
+            typeof entry.correlation.toolCallId === "string" &&
+            entry.correlation.toolCallId.length > 0
+          );
         if (entry.type === "a2a_task")
           return (
             isRecord(entry.correlation) &&

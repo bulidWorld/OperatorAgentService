@@ -24,6 +24,7 @@ properties:
         - $ref: '#/$defs/reasoning'
         - $ref: '#/$defs/modelSummary'
         - $ref: '#/$defs/toolExecution'
+        - $ref: '#/$defs/a2aToolExecution'
         - $ref: '#/$defs/a2aTaskActivity'
 $defs:
   a2aTaskState:
@@ -174,10 +175,41 @@ $defs:
               required: [status]
             then:
               required: [request_id]
+  a2aToolExecution:
+    description: 由 A2A 扩展 TOOL_EXECUTION_START/END 事件驱动的远端工具调用。
+    allOf:
+      - $ref: '#/$defs/baseEvent'
+      - type: object
+        required: [type, tool, correlation]
+        properties:
+          type:
+            const: a2a_tool_execution
+            description: 固定为 a2a_tool_execution，表示 A2A 远端工具调用。
+          tool:
+            type: object
+            additionalProperties: true
+            required: [name]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                description: 远端工具名称。
+              server:
+                type: string
+                description: A2A 远端服务标识。
+          correlation:
+            type: object
+            additionalProperties: false
+            required: [toolCallId]
+            properties:
+              toolCallId:
+                type: string
+                minLength: 1
+                description: A2A 响应提供的远端工具调用标识。
   a2aTaskActivity:
     description: >-
-      A2A 远端任务活动。首次状态通过快照呈现；后续状态或进度变化通过 AG-UI ActivityDeltaEvent
-      发送 RFC 6902 patch，更新该活动条目。output 保存 A2A_PROGRESS_EVENT 的数据，包含任务状态和触发本次更新的原始 A2A 事件。
+      A2A 远端任务进度条目。每条 A2A_PROGRESS_EVENT 通过 AG-UI ActivityDeltaEvent
+      向时间线追加一个条目。output 保存本次进度的任务状态和原始 A2A 事件。
     allOf:
       - $ref: '#/$defs/baseEvent'
       - type: object
@@ -202,7 +234,7 @@ $defs:
             $ref: '#/$defs/a2aProgress'
   a2aProgress:
     type: object
-    description: A2A_PROGRESS_EVENT 数据；每次状态或产物变化时随 ActivityDeltaEvent 更新。
+    description: 单条 A2A_PROGRESS_EVENT 的数据，随新增条目的 ActivityDeltaEvent 发送。
     additionalProperties: true
     required: [taskId, status, update]
     properties:
