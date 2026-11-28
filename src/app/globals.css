@@ -1213,6 +1213,16 @@ footer > span:first-child {
   .restart-table th, .restart-table td { padding: 9px 16px; }
 }
 .fault-agent { margin-bottom: 22px; }
+.fault-agent-history-button { display: inline-grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; padding: 0; border: 1px solid #e1e9ef; border-radius: 8px; background: #fff; color: #526b81; cursor: pointer; }
+.fault-agent-history-button:hover, .fault-agent-history-button[aria-expanded="true"] { border-color: #c7ded8; background: #eff9f5; color: #19876f; }
+.fault-agent-history-button:focus-visible { outline: 2px solid #19876f; outline-offset: 2px; }
+.fault-agent-history { position: fixed; z-index: 900; inset: 0 0 0 auto; display: flex; width: min(100%, 480px); flex-direction: column; border-left: 1px solid #e1e9ef; background: #fff; box-shadow: -12px 0 40px rgba(23, 48, 69, .16); animation: diagnostic-drawer-in .22s ease-out; }
+.fault-agent-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #eaf0f4; }
+.fault-agent-history-heading h2 { color: #26394e; font-size: 16px; }
+.fault-agent-history-content { display: grid; min-height: 0; align-content: start; gap: 12px; padding: 16px; overflow: auto; overscroll-behavior: contain; }
+.fault-agent-history-content .activity-run-meta code { min-width: 0; overflow-wrap: anywhere; }
+.fault-agent-history-content .activity-run-meta span { min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .fault-agent-history { animation: none; } }
 .fault-agent > p { margin: 0 20px 14px; color: #65708a; font-size: 13px; }
 .fault-agent [data-copilotkit] { min-height: 400px; }
 .fault-agent .copilotKitMessages { justify-content: flex-start; }
@@ -1228,13 +1238,13 @@ footer > span:first-child {
 .fault-agent-reply-heading { display: flex; align-items: center; gap: 9px; color: #2b4155; font-size: 13px; }
 .fault-agent-reply-heading > span:last-child { margin-left: auto; color: #91a0ad; font-size: 11px; }
 .fault-agent-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #d6eee6; border-radius: 10px; background: #eff9f5; color: #19876f; }
-.fault-agent-reply .activity-timeline { margin: 0; box-shadow: none; background: #fbfcfd; border-radius: 12px; }
-.fault-agent-reply .activity-timeline-heading { cursor: pointer; list-style: none; padding: 13px 16px; }
-.fault-agent-reply .activity-timeline-heading::-webkit-details-marker { display: none; }
-.fault-agent-reply .activity-timeline-heading::after { content: "⌄"; color: #8291a0; font-size: 16px; transition: transform .18s ease; }
-.fault-agent-reply .activity-timeline-heading > div { flex: 1; }
-.fault-agent-reply .activity-timeline-heading h3 { font-size: 13px; }
-.fault-agent-reply .activity-timeline-fold[open] > .activity-timeline-heading::after { transform: rotate(180deg); }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline { margin: 0; box-shadow: none; background: #fbfcfd; border-radius: 12px; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading { cursor: pointer; list-style: none; padding: 13px 16px; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading::-webkit-details-marker { display: none; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading::after { content: "⌄"; color: #8291a0; font-size: 16px; transition: transform .18s ease; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading > div { flex: 1; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading h3 { font-size: 13px; }
+:is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-fold[open] > .activity-timeline-heading::after { transform: rotate(180deg); }
 .fault-agent-conclusion { min-width: 0; padding: 18px 20px; border: 1px solid #e4ece9; border-radius: 12px; background: #fff; }
 .fault-agent-conclusion > .activity-kicker { display: block; margin-bottom: 12px; color: #25826c; font-size: 11px; letter-spacing: .5px; }
 .fault-agent-conclusion .copilotKitMarkdown { color: #304253; font-size: 14px; line-height: 1.85; overflow-wrap: anywhere; }
@@ -1252,7 +1262,7 @@ footer > span:first-child {
   .fault-agent-conversation { padding: 14px 10px 20px; }
   .fault-agent-question { max-width: 94%; }
   .fault-agent-conclusion { padding: 14px; }
-  .fault-agent-reply .activity-timeline-heading { gap: 8px; padding: 12px; }
+  :is(.fault-agent-reply, .fault-agent-history-content) .activity-timeline-heading { gap: 8px; padding: 12px; }
   .fault-agent-reply .activity-run-meta code { overflow-wrap: anywhere; }
 }
 .fault-agent-composer { width: min(100%, 1024px); min-width: 0; margin: 0 auto; padding: 0 24px; }

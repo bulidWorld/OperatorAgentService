@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ComponentProps } from "react";
+import { createContext, useContext, useEffect, useId, useState, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 import { CopilotChat, CopilotChatView, useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import { Markdown } from "@copilotkit/react-ui";
 import { buildFaultAgentTurns } from "@/lib/fault-agent-turns";
 import type { ActivityMessage, Interrupt } from "@ag-ui/client";
-import { Activity, Bot, Check, CircleAlert, Clock3, FileText, LoaderCircle, ShieldCheck, Wrench, X } from "lucide-react";
+import { Activity, Bot, Check, CircleAlert, Clock3, FileText, History, LoaderCircle, ShieldCheck, Wrench, X } from "lucide-react";
 import type {
   ApprovalInput,
   ApprovalRequest,
@@ -212,22 +213,24 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
 
 /**
  * 执行 ActivityTimeline 相关处理。
- * @param { activity, sync, expanded, onExpandedChange, toolResults, messageText } { activity, sync, expanded, onExpandedChange, toolResults, messageText } 参数。
+ * @param { activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents } { activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents } 参数。
  * @returns 执行结果。
  */
-function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string> }) {
+function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string>; recentEvents?: ReadonlySet<AgentRunEvent> }) {
   const openApproval = useContext(ApprovalContext);
+  const detailTitleId = useId();
   const [detail, setDetail] = useState<{ title: string; content: unknown } | null>(null);
   if (!activity) {
     return <div className="activity-empty-state compact"><span><Clock3 size={17} /></span><p>执行时间线暂不可用。</p></div>;
   }
   const sortedEvents = [...activity.events].sort((a, b) => a.sequence - b.sequence);
+  const visibleEvents = recentEvents ? sortedEvents.filter((event) => recentEvents.has(event)) : sortedEvents;
   const runStatus = statusLabels[activity.run.status] ?? activity.run.status;
   return (
     <section className="activity-timeline" aria-live="polite">
       <details className="activity-timeline-fold" open={expanded} onToggle={(event) => { if (event.currentTarget.open !== expanded) onExpandedChange(event.currentTarget.open); }}>
       <summary className="activity-timeline-heading">
-        <div><span className="activity-kicker">ACTIVITY</span><h3>执行时间线 <span className="activity-event-count">{sortedEvents.length} 步</span></h3></div>
+        <div><time className="activity-kicker" dateTime={activity.run.startedAt}>{recentEvents ? formatActivityTime(activity.run.startedAt) : new Date(activity.run.startedAt).toLocaleString("zh-CN", { hour12: false })}</time><h3>执行时间线 <span className="activity-event-count">{visibleEvents.length}{recentEvents !== undefined && visibleEvents.length < sortedEvents.length ? ` / ${sortedEvents.length}` : ""} 步</span></h3></div>
         <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
       </summary>
       {sync === "needs_snapshot" && <div className="activity-sync-notice"><FileText size={14} />活动增量暂不可用，等待完整快照同步。</div>}
@@ -235,9 +238,9 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
       {activity.run.error && <p className="activity-run-error">{activity.run.error}</p>}
       {sortedEvents.length === 0 ? <div className="activity-empty-state compact"><span><Activity size={17} /></span><p>任务已启动，正在等待第一个执行步骤…</p></div> : (
         <ol className="activity-event-list">
-          {sortedEvents.map((item, index) => (
+          {visibleEvents.map((item, index) => (
             <li key={item.id} className={`activity-event status-${item.status}`}>
-              <div className="activity-event-rail"><span className="activity-event-marker"><StatusIcon status={item.status} type={item.type} /></span>{index < sortedEvents.length - 1 && <i />}</div>
+              <div className="activity-event-rail"><span className="activity-event-marker"><StatusIcon status={item.status} type={item.type} /></span>{index < visibleEvents.length - 1 && <i />}</div>
               <article className={`activity-event-card${item.status === "awaiting_approval" && item.type === "tool_execution" ? " is-approval-action" : ""}`} onClick={item.status === "awaiting_approval" && item.type === "tool_execution" ? () => openApproval(item) : undefined} onKeyDown={item.status === "awaiting_approval" && item.type === "tool_execution" ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openApproval(item); } } : undefined} role={item.status === "awaiting_approval" && item.type === "tool_execution" ? "button" : undefined} tabIndex={item.status === "awaiting_approval" && item.type === "tool_execution" ? 0 : undefined}>
                 <div className="activity-event-topline"><span className="activity-event-type">{eventTypeLabels[item.type] ?? "执行步骤"}</span><time>{formatActivityTime(item.startedAt)}</time></div>
                 <div className="activity-event-title-row"><h4>{item.title}</h4><span className={`activity-event-status status-${item.status}`}>{statusLabels[item.status] ?? item.status}</span></div>
@@ -251,7 +254,7 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
         </ol>
       )}
       </details>
-      {detail && <div className="activity-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null); }}><section className="activity-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-detail-title"><header><h3 id="activity-detail-title">{detail.title}</h3><button type="button" aria-label="关闭" onClick={() => setDetail(null)}>×</button></header><pre>{displayValue(detail.content)}</pre></section></div>}
+      {detail && <div className="activity-detail-backdrop" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setDetail(null); } }} onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null); }}><section className="activity-detail-dialog" role="dialog" aria-modal="true" aria-labelledby={detailTitleId}><header><h3 id={detailTitleId}>{detail.title}</h3><button type="button" aria-label="关闭" onClick={() => setDetail(null)}>×</button></header><pre>{displayValue(detail.content)}</pre></section></div>}
     </section>
   );
 }
@@ -513,6 +516,32 @@ export default function FaultAgent() {
   const { agent, isReady } = useAgent();
   const { activities, runUsers, results, failedRuns, toolResults, messageText } = useAgentActivity(agent, isReady);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
+  const [historyExpandedRuns, setHistoryExpandedRuns] = useState<Record<string, boolean>>({});
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyId = useId();
+  const historyButton = useRef<HTMLButtonElement>(null);
+  const historyCloseButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (historyOpen) historyCloseButton.current?.focus();
+  }, [historyOpen]);
+
+  /**
+   * 关闭历史抽屉并将焦点移回历史记录按钮。
+   * @returns 无返回值。
+   */
+  function closeHistory(): void {
+    setHistoryOpen(false);
+    historyButton.current?.focus();
+  }
+
+  const historyRuns = Object.values(activities).sort((a, b) =>
+    Date.parse(b.activity.run.startedAt) - Date.parse(a.activity.run.startedAt),
+  );
+  // 跨运行按步骤开始时间选取最近三条；时间相同的步骤按序号倒序选择。
+  const recentEvents = new Set(historyRuns.flatMap(({ activity }) => activity.events)
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.sequence - a.sequence)
+    .slice(0, 3));
     /**
  * 执行 openApproval 相关处理。
  * @param event event 参数。
@@ -528,6 +557,7 @@ export default function FaultAgent() {
     },
   });
 
+  // 聊天预览和历史抽屉共用活动数据，各自保留展开状态。
   return (
     <section className="panel fault-agent">
       <div className="panel-heading">
@@ -535,10 +565,54 @@ export default function FaultAgent() {
           <h2>故障分析助手</h2>
           <span className="count-pill">智能诊断</span>
         </div>
+        <button
+          ref={historyButton}
+          className="fault-agent-history-button"
+          type="button"
+          aria-label="历史记录"
+          title="历史记录"
+          aria-expanded={historyOpen}
+          aria-controls={historyOpen ? historyId : undefined}
+          onClick={() => historyOpen ? closeHistory() : setHistoryOpen(true)}
+        >
+          <History size={17} aria-hidden="true" />
+        </button>
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
       <ApprovalContext.Provider value={openApproval}>
         {approval}
+        {historyOpen && createPortal(
+          <aside
+            id={historyId}
+            className="fault-agent-history"
+            aria-labelledby={`${historyId}-title`}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !event.defaultPrevented) closeHistory();
+            }}
+          >
+            <header className="fault-agent-history-heading">
+              <h2 id={`${historyId}-title`}>历史时间线</h2>
+              <button ref={historyCloseButton} type="button" className="fault-agent-history-button" aria-label="关闭历史时间线" onClick={closeHistory}>
+                <X size={18} aria-hidden="true" />
+              </button>
+            </header>
+            <div className="fault-agent-history-content">
+              {!historyRuns.length && <p className="fault-agent-pending">暂无执行记录。</p>}
+              {historyRuns.map(({ activity, sync }, index) => (
+                <ActivityTimeline
+                  key={activity.run.runId}
+                  activity={activity}
+                  sync={sync}
+                  toolResults={toolResults}
+                  messageText={messageText}
+                  expanded={historyExpandedRuns[activity.run.runId] ?? (index === 0 || activity.run.status === "awaiting_approval" || activity.run.status === "running")}
+                  onExpandedChange={(expanded) => setHistoryExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))}
+                />
+              ))}
+            </div>
+          </aside>,
+          document.body,
+        )}
         <CopilotChat
           chatView={FaultAgentChatView}
           labels={{ chatInputPlaceholder: "例如：production/payment-api 最近有哪些故障？" }}
@@ -550,8 +624,23 @@ export default function FaultAgent() {
                 <div className="fault-agent-question"><span className="fault-agent-turn-label">你</span><p>{turn.user.content}</p></div>
                 <div className="fault-agent-reply">
                   <div className="fault-agent-reply-heading"><span className="fault-agent-avatar"><Bot size={17} /></span><b>故障分析助手</b><span>第 {index + 1} 轮</span></div>
-                  {turn.runs.map(({ activity, sync }) => <ActivityTimeline key={activity.run.runId} activity={activity} sync={sync} toolResults={toolResults} messageText={messageText} expanded={expandedRuns[activity.run.runId] ?? (activity.run.status === "running" || activity.run.status === "awaiting_approval")} onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))} />)}
-                  {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.failed || turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
+                  {turn.runs.map(({ activity, sync }) => {
+                    const runId = activity.run.runId;
+                    if (activity.events.length && !activity.events.some((event) => recentEvents.has(event))) return null;
+                    return (
+                      <ActivityTimeline
+                        key={runId}
+                        activity={activity}
+                        sync={sync}
+                        toolResults={toolResults}
+                        messageText={messageText}
+                        recentEvents={recentEvents}
+                        expanded={expandedRuns[runId] ?? true}
+                        onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [runId]: expanded }))}
+                      />
+                    );
+                  })}
+                  {turn.reply ? <section className="fault-agent-conclusion"><span className="activity-kicker">分析回复</span><Markdown content={turn.reply} /></section> : <p className="fault-agent-pending" role="status">{turn.failed || turn.runs.some(({ activity }) => activity.run.status === "failed") ? "本轮执行失败，请查看历史时间线中的错误详情。" : turn.runs.some(({ activity }) => activity.run.status === "completed") ? "本轮执行已结束，未返回文本回复。" : turn.runs.some(({ activity }) => activity.run.status === "cancelled") ? "本轮执行已取消。" : "正在分析，执行进展将在时间线中显示…"}</p>}
                 </div>
               </section>)}
             </div>;
