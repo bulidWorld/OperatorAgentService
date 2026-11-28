@@ -216,7 +216,7 @@ function EventDetails({ item, content, onOpen }: { item: AgentRunEvent; content?
  * @param { activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents } { activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents } 参数。
  * @returns 执行结果。
  */
-function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string>; recentEvents?: ReadonlySet<AgentRunEvent> }) {
+function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResults, messageText, recentEvents, onOpenHistory }: { activity: AgentRunActivity | null; sync: ActivitySyncState; expanded: boolean; onExpandedChange: (expanded: boolean) => void; toolResults: Record<string, unknown>; messageText: Record<string, string>; recentEvents?: ReadonlySet<AgentRunEvent>; onOpenHistory?: (trigger: HTMLButtonElement) => void }) {
   const openApproval = useContext(ApprovalContext);
   const detailTitleId = useId();
   const [detail, setDetail] = useState<{ title: string; content: unknown } | null>(null);
@@ -230,8 +230,11 @@ function ActivityTimeline({ activity, sync, expanded, onExpandedChange, toolResu
     <section className="activity-timeline" aria-live="polite">
       <details className="activity-timeline-fold" open={expanded} onToggle={(event) => { if (event.currentTarget.open !== expanded) onExpandedChange(event.currentTarget.open); }}>
       <summary className="activity-timeline-heading">
-        <div><time className="activity-kicker" dateTime={activity.run.startedAt}>{recentEvents ? formatActivityTime(activity.run.startedAt) : new Date(activity.run.startedAt).toLocaleString("zh-CN", { hour12: false })}</time><h3>执行时间线 <span className="activity-event-count">{visibleEvents.length}{recentEvents !== undefined && visibleEvents.length < sortedEvents.length ? ` / ${sortedEvents.length}` : ""} 步</span></h3></div>
-        <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
+        <div><time className="activity-kicker" dateTime={activity.run.startedAt}>{recentEvents ? formatActivityTime(activity.run.startedAt) : new Date(activity.run.startedAt).toLocaleString("zh-CN", { hour12: false })}</time><h3><span>执行时间线</span> <span className="activity-event-count">{visibleEvents.length}{recentEvents !== undefined && visibleEvents.length < sortedEvents.length ? ` / ${sortedEvents.length}` : ""} 步</span></h3></div>
+        <span className="activity-timeline-heading-actions">
+          {onOpenHistory && <button className="fault-agent-history-button" type="button" aria-label="查看此回复的历史时间线" title="历史记录" onClick={(event) => onOpenHistory(event.currentTarget)}><History size={15} aria-hidden="true" /></button>}
+          <span className={`activity-run-status status-${activity.run.status}`}><i />{runStatus}</span>
+        </span>
       </summary>
       {sync === "needs_snapshot" && <div className="activity-sync-notice"><FileText size={14} />活动增量暂不可用，等待完整快照同步。</div>}
       <div className="activity-run-meta"><span><b>Run</b><code>{activity.run.runId}</code></span><span><b>开始于</b>{formatActivityTime(activity.run.startedAt)}</span></div>
@@ -520,6 +523,8 @@ export default function FaultAgent() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyId = useId();
   const historyButton = useRef<HTMLButtonElement>(null);
+  const historyTrigger = useRef<HTMLButtonElement | null>(null);
+  const [historyRunIds, setHistoryRunIds] = useState<string[]>([]);
   const historyCloseButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -532,7 +537,8 @@ export default function FaultAgent() {
    */
   function closeHistory(): void {
     setHistoryOpen(false);
-    historyButton.current?.focus();
+    historyTrigger.current?.focus();
+    historyTrigger.current = null;
   }
 
   const historyRuns = Object.values(activities).sort((a, b) =>
@@ -565,18 +571,6 @@ export default function FaultAgent() {
           <h2>故障分析助手</h2>
           <span className="count-pill">智能诊断</span>
         </div>
-        <button
-          ref={historyButton}
-          className="fault-agent-history-button"
-          type="button"
-          aria-label="历史记录"
-          title="历史记录"
-          aria-expanded={historyOpen}
-          aria-controls={historyOpen ? historyId : undefined}
-          onClick={() => historyOpen ? closeHistory() : setHistoryOpen(true)}
-        >
-          <History size={17} aria-hidden="true" />
-        </button>
       </div>
       <p>可查询活动告警、读取 Pod 日志并结合上下文分析故障原因。</p>
       <ApprovalContext.Provider value={openApproval}>
@@ -597,8 +591,12 @@ export default function FaultAgent() {
               </button>
             </header>
             <div className="fault-agent-history-content">
-              {!historyRuns.length && <p className="fault-agent-pending">暂无执行记录。</p>}
-              {historyRuns.map(({ activity, sync }, index) => (
+              {!historyRunIds.length && <p className="fault-agent-pending">暂无执行记录。</p>}
+              {historyRunIds.map((runId, index) => {
+                const entry = activities[runId];
+                if (!entry) return null;
+                const { activity, sync } = entry;
+                return (
                 <ActivityTimeline
                   key={activity.run.runId}
                   activity={activity}
@@ -608,7 +606,8 @@ export default function FaultAgent() {
                   expanded={historyExpandedRuns[activity.run.runId] ?? (index === 0 || activity.run.status === "awaiting_approval" || activity.run.status === "running")}
                   onExpandedChange={(expanded) => setHistoryExpandedRuns((current) => ({ ...current, [activity.run.runId]: expanded }))}
                 />
-              ))}
+                );
+              })}
             </div>
           </aside>,
           document.body,
@@ -635,6 +634,11 @@ export default function FaultAgent() {
                         toolResults={toolResults}
                         messageText={messageText}
                         recentEvents={recentEvents}
+                        onOpenHistory={(trigger) => {
+                          historyTrigger.current = trigger;
+                          setHistoryRunIds(turn.runs.map(({ activity: runActivity }) => runActivity.run.runId));
+                          setHistoryOpen(true);
+                        }}
                         expanded={expandedRuns[runId] ?? true}
                         onExpandedChange={(expanded) => setExpandedRuns((current) => ({ ...current, [runId]: expanded }))}
                       />
